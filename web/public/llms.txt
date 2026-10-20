@@ -1,0 +1,16 @@
+# Geoportal CEDESU
+
+> Visor cartográfico del Centro de Estudios para el Desarrollo Sustentable (CEDESU) de la Universidad Autónoma de Campeche (UACAM). Permite consultar capas geográficas y estudios del Estado de Campeche en un mapa interactivo.
+
+Estado actual: prototipo en desarrollo. Las capas publicadas son datos de prueba importados desde QGIS (entidades federativas, municipios de Quintana Roo y climas de CONABIO) y así se señalan en la interfaz. La carga y publicación de datos requiere una cuenta de administración y un servidor que aún no está configurado.
+
+## Secciones
+
+- [Mapa](./#/): capas, búsqueda de lugares y coordenadas, identificación de elementos y medición de distancias y áreas.
+- [Catálogo de estudios](./#/catalogo): ficha de metadatos de cada estudio (perfil basado en ISO 19115), con cita y descarga de la ficha.
+
+## Datos de las capas de prueba
+
+- [Entidades federativas de México](./data/mexico_entidades.geojson): GeoJSON, EPSG:4326.
+- [Municipios de Quintana Roo, 2015](./data/municipios_qroo_2015.geojson): GeoJSON, EPSG:4326.
+- [Climas de México, CONABIO 1:1 000 000](./data/climas_conabio_1m.geojson): GeoJSON, EPSG:4326, simplificado para la web. Licencia CC BY-NC 2.5 MX (citar a CONABIO).

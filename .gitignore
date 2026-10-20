@@ -1,0 +1,10 @@
+# Solo se versionan la interfaz, el despliegue y la documentacion
+/*
+!/.gitignore
+!/web/
+!/deploy/
+!/docs/
+node_modules/
+dist/
+.env
+.env.*
