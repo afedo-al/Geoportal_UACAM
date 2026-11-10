@@ -5,7 +5,7 @@ import LayerPanel from '../components/LayerPanel.vue';
 import PropsPanel from '../components/PropsPanel.vue';
 import MapNeatline from '../components/MapNeatline.vue';
 import { ui, setDock } from '../stores/ui.js';
-import { layers, entryById } from '../stores/layers.js';
+import { layers, entryById, loadVisibleDatasets } from '../stores/layers.js';
 import { gps } from '../stores/gps.js';
 import { mapState, initMap, fitStart, refreshSize, setMapActive, setTool, restartMeasure, zoomBy, flyToState, locate, coordText, setGpsMarkers } from '../stores/map.js';
 
@@ -38,7 +38,11 @@ onMounted(() => {
   sizeWatch.observe(mapEl.value);
 });
 onBeforeUnmount(() => sizeWatch.disconnect());
-onActivated(() => { setMapActive(true); neat.value?.schedule(); });
+/* Las capas visibles se descargan con el mapa ya en pantalla y la página cargada, en un momento libre:
+   así su lectura no compite con el primer pintado ni con la respuesta a la interacción. */
+const whenIdle = window.requestIdleCallback || (fn => setTimeout(fn, 200));
+const afterLoad = fn => (document.readyState === 'complete' ? fn() : addEventListener('load', fn, { once: true }));
+onActivated(() => { setMapActive(true); neat.value?.schedule(); afterLoad(() => whenIdle(loadVisibleDatasets, { timeout: 1500 })); });
 onDeactivated(() => setMapActive(false));
 /* Al abrir o cerrar un panel cambia el área útil: el mapa y el marco se recalculan al terminar la transición */
 watch(() => [ui.docks.left, ui.docks.right], () => setTimeout(() => { neat.value?.schedule(); }, 300));

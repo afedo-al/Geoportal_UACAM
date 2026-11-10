@@ -16,7 +16,7 @@ import { BASEMAPS, vectorStyle } from '../stores/map.js';
 const props = defineProps({ geojson: { type: Object, default: null } });
 const el = ref(null);
 let map = null, layer = null, tip = null, tipEl = null;
-const style = vectorStyle({ color: '#24528f', weight: 1.4, fillColor: '#24528f', fillOpacity: 0.18 }, '#24528f');
+const style = vectorStyle({ color: '#214c7e', weight: 1.4, fillColor: '#214c7e', fillOpacity: 0.18 }, '#214c7e');
 
 function draw() {
   if (!map) return;
@@ -49,7 +49,7 @@ onMounted(() => {
   map = new OLMap({
     target: el.value,
     layers: [new TileLayer({ source: new XYZ({ url: osm.url, maxZoom: osm.maxZoom, attributions: osm.attributions, crossOrigin: 'anonymous' }) }), layer],
-    controls: defaultControls({ rotate: false, attributionOptions: { collapsible: false } }),
+    controls: defaultControls({ rotate: false, attributionOptions: { collapsible: false, tipLabel: 'Atribuciones' }, zoomOptions: { zoomInTipLabel: 'Acercar', zoomOutTipLabel: 'Alejar' } }),
     view: new View({ center: fromLonLat([-90.5, 19.3]), zoom: 6, maxZoom: 19 })
   });
   map.addOverlay(tip);

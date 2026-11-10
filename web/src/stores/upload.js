@@ -2,16 +2,22 @@
    La lectura y validación reales corren en un Web Worker (lib/ingest.worker.js)
    para no congelar la página; aquí quedan el estado del lote, KML/GPX
    (DOMParser) y Excel (SheetJS, cargado bajo demanda). GeoPackage y GeoTIFF se
-   validan en el servidor. Nada se publica sin confirmación del servidor. */
-import { reactive, markRaw, nextTick } from 'vue';
+   validan en el servidor. Cada capa tiene su propio estudio (stores/studies.js), que se rellena con
+   los metadatos que traiga el archivo. Nada se publica sin confirmación del servidor. */
+import { reactive, markRaw, nextTick, watch } from 'vue';
 import { FileCheck as FC } from '../lib/filecheck.js';
 import { IngestCore } from '../lib/ingest-core.js';
 import { xmlFeatures } from '../lib/xmlgeo.js';
+import { parseMetadataXML, fromKml, fromGpx, fromGeoJSON, fromOffice, themeFromLayer } from '../lib/studyinfo.js';
 import { fmtSize } from '../lib/format.js';
-import { CFG } from '../config.js';
+import { api, apiUrl, hasApi, sameOrigin, csrfToken } from '../lib/api.js';
 import { showToast, startTask, confirmAction, ui } from './ui.js';
 import { onSessionEnd } from './session.js';
-import { addSessionLayer, selectLayer, zoomToLayer } from './layers.js';
+import { layers, addSessionLayer, selectLayer, zoomToLayer, refreshSessionData } from './layers.js';
+import {
+  studies, studyById, addStudy, removeStudy, clearStudies, applyInfo, renameStudyLayer, studyComplete, missingFields, studyPayload,
+  metaFromStudy, openStudyEditor, onStudyDeleted, resetAuto, FIELD_LABELS
+} from './studies.js';
 import { router } from '../router.js';
 
 const SHP_PARTS = ['shp', 'shx', 'dbf', 'prj', 'cpg', 'qpj', 'sbn', 'sbx', 'xml'];
@@ -46,10 +52,6 @@ export const BUSY = ['reading', 'checking', 'sending'];
 
 export const batch = reactive({ items: [], selected: null, dragging: false });
 
-export const STUDY_REQ = ['sTitle', 'sTheme', 'sDate', 'sResp', 'sLic', 'sAccess'];
-const emptyStudy = () => ({ sTitle: '', sTheme: '', sDate: '', sResp: '', sSource: '', sLic: '', sAccess: '', sDesc: '', sLineage: '' });
-export const study = reactive(emptyStudy());
-export const studyComplete = () => STUDY_REQ.every(k => String(study[k] || '').trim());
 
 let seq = 0;
 let jobSeq = 0;
@@ -115,11 +117,12 @@ function dropRaw(id) {
 /* ---------------- agrupación de archivos en capas ---------------- */
 const baseName = name => name.replace(/^.*[\\/]/, '').replace(/\.shp\.xml$/i, '').replace(/\.[^.]+$/, '');
 const extOf = name => /\.shp\.xml$/i.test(name) ? 'xml' : (name.split('.').pop() || '').toLowerCase();
-export const sizeOf = it => Object.values(it.parts).reduce((sum, f) => sum + (f?.size || 0), 0);
+export const sizeOf = it => [...Object.values(it.parts), ...Object.values(it.extra || {}), it.sidecar].reduce((sum, f) => sum + (f?.size || 0), 0);
 
 function newItem(o) {
-  const it = { id: `c${++seq}`, state: 'reading', progress: 0, checks: [], geojson: null, table: null, crs: null, srcCrs: null, issues: [], message: null, layerName: o.name.replace(/[_-]+/g, ' ').trim(), ...o };
+  const it = { id: `c${++seq}`, state: 'reading', progress: 0, checks: [], geojson: null, table: null, crs: null, srcCrs: null, issues: [], missing: [], message: null, layerName: o.name.replace(/[_-]+/g, ' ').trim(), srcFormat: o.format, ...o };
   batch.items.push(it);
+  addStudy(it.id, it.layerName);
   return it.id;
 }
 
@@ -133,11 +136,12 @@ export function addFiles(fileList) {
   const accepted = [];
   for (const f of files) { if (f.size <= budget) { accepted.push(f); budget -= f.size; } }
   if (accepted.length < files.length) showToast('warn', 'Algunos archivos no se agregaron', `El lote admite hasta ${(FC.LIMITS.maxBatchBytes / 1048576).toFixed(0)} MB en total.`);
+  if (accepted.length > room * 8) showToast('warn', 'Algunos archivos no se agregaron', `Caben ${room} ${room === 1 ? 'capa más' : 'capas más'} en el lote; se tomaron los primeros ${room * 8} archivos.`);
   files = accepted.slice(0, room * 8);
   if (!files.length) return;
   const groups = new Map();
   const singles = [];
-  const shpBases = new Set([...files.filter(f => extOf(f.name) === 'shp').map(f => baseName(f.name).toLowerCase()), ...batch.items.filter(i => i.format === 'shp').map(i => i.key)]);
+  const shpBases = new Set([...files.filter(f => extOf(f.name) === 'shp').map(f => baseName(f.name).toLowerCase()), ...batch.items.filter(i => i.format === 'shp').map(i => i.key), ...batch.items.filter(i => i.zipStem).map(i => i.zipStem)]);
   files.forEach(f => {
     const ext = extOf(f.name);
     if (SHP_PARTS.includes(ext) && (ext !== 'xml' || /\.shp\.xml$/i.test(f.name) || shpBases.has(baseName(f.name).toLowerCase()))) {
@@ -147,27 +151,96 @@ export function addFiles(fileList) {
     } else singles.push(f);
   });
   const touched = [];
+  const replaced = [];
+  const open = it => !['sending', 'sent'].includes(it.state);
   groups.forEach((list, key) => {
-    const existing = batch.items.find(it => it.format === 'shp' && it.key === key && !['sending', 'sent'].includes(it.state));
+    const existing = batch.items.find(it => it.format === 'shp' && it.srcFormat === 'shp' && it.key === key && open(it));
+    const zipped = !existing && !list.some(f => extOf(f.name) === 'shp') && batch.items.find(it => it.zipStem === key && open(it));
     if (existing) {
-      list.forEach(f => { existing.parts[extOf(f.name)] = f; });
+      list.forEach(f => { const ext = extOf(f.name); if (existing.parts[ext]) replaced.push(f.name); existing.parts[ext] = f; });
       touched.push(existing.id);
+    } else if (zipped) {
+      /* Faltaba un componente de una capa que vino en un ZIP: se añade solo ese archivo */
+      list.forEach(f => attachFile(zipped, extOf(f.name), f));
+      touched.push(zipped.id);
     } else {
       const parts = {};
       list.forEach(f => { parts[extOf(f.name)] = f; });
       touched.push(newItem({ format: 'shp', key, name: baseName(list[0].name), parts }));
     }
   });
-  singles.forEach(f => {
+  singles.filter(f => extOf(f.name) !== 'xml').forEach(f => {
     const ext = extOf(f.name);
+    const same = EXT[ext] && batch.items.find(it => it.srcFormat === EXT[ext] && it.key === f.name.toLowerCase() && open(it));
+    if (same) {
+      /* Ya estaba en el lote: se reemplaza el archivo y se vuelve a leer; el estudio y lo editado se conservan */
+      same.parts = { main: f };
+      same.extra = undefined;
+      replaced.push(f.name);
+      if (!touched.includes(same.id)) touched.push(same.id);
+      return;
+    }
     touched.push(newItem({ format: EXT[ext] || null, key: f.name.toLowerCase(), name: baseName(f.name), parts: { main: f } }));
   });
+  /* Un .xml suelto con el mismo nombre que una capa (GeoJSON, KML, CSV…) son sus metadatos: se unen a ella */
+  singles.filter(f => extOf(f.name) === 'xml').forEach(f => {
+    const base = baseName(f.name).toLowerCase();
+    const target = batch.items.find(it => it.srcFormat !== 'shp' && open(it) && String(it.name || '').toLowerCase() === base);
+    if (!target) { touched.push(newItem({ format: null, key: f.name.toLowerCase(), name: baseName(f.name), parts: { main: f } })); return; }
+    attachFile(target, 'xml', f);
+    if (!touched.includes(target.id)) applySidecarNow(target);   // la capa ya estaba leída: solo se leen los metadatos
+  });
+  if (replaced.length) {
+    showToast('info', replaced.length === 1 ? 'Se reemplazó un archivo' : `Se reemplazaron ${replaced.length} archivos`,
+      `${replaced.slice(0, 4).join(', ')}${replaced.length > 4 ? '…' : ''} ya estaba${replaced.length === 1 ? '' : 'n'} en el lote: se usa la versión nueva y se conserva lo que editaste del estudio.`);
+  }
   if (!batch.selected && touched[0]) batch.selected = touched[0];
   touched.forEach(processItem);
 }
 
+/* ---------------- archivos de cada capa ---------------- */
+const ROLE = {
+  shp: 'Geometría', shx: 'Índice de geometrías', dbf: 'Tabla de atributos', prj: 'Sistema de referencia', cpg: 'Codificación de texto',
+  qpj: 'Sistema de referencia (QGIS)', sbn: 'Índice espacial', sbx: 'Índice espacial', xml: 'Metadatos del estudio'
+};
+/* Lista de los archivos de una capa, con el papel de cada uno. slot identifica de dónde quitarlo. */
+export function fileList(it) {
+  if (!it) return [];
+  const out = Object.entries(it.parts).filter(([, f]) => f).map(([k, f]) => ({
+    slot: k, name: f.name, size: f.size,
+    role: k === 'main' ? `Archivo ${FORMATS[it.srcFormat]?.label || 'principal'}${it.srcFormat === 'zip' ? ' (contiene la capa)' : ''}` : ROLE[k] || `.${k}`
+  }));
+  Object.entries(it.extra || {}).forEach(([k, f]) => f && out.push({ slot: `extra:${k}`, name: f.name, size: f.size, role: `${ROLE[k] || `.${k}`} · añadido aparte del ZIP` }));
+  if (it.sidecar) out.push({ slot: 'sidecar', name: it.sidecar.name, size: it.sidecar.size, role: ROLE.xml });
+  return out;
+}
+
+/* Quita un archivo de la capa y la vuelve a leer con los que quedan. Si es el archivo principal o el último,
+   se quita la capa entera (con confirmación). Los archivos del equipo no se tocan. */
+export async function removeFile(id, slot) {
+  const it = byId(id);
+  if (!it || BUSY.includes(it.state) || it.state === 'sending') return;
+  const files = fileList(it);
+  const file = files.find(f => f.slot === slot);
+  if (!file) return;
+  if (slot === 'main' || files.length === 1) {
+    const ok = await confirmAction({
+      title: `Quitar la capa «${it.layerName}»`,
+      text: `«${file.name}» es ${slot === 'main' ? 'el archivo principal' : 'el último archivo'} de la capa: al quitarlo se quitan del lote la capa y su estudio. Los archivos de tu equipo no se modifican.`,
+      ok: 'Quitar capa', danger: true
+    });
+    if (ok) removeItem(id);
+    return;
+  }
+  if (slot.startsWith('extra:')) { const { [slot.slice(6)]: _, ...rest } = it.extra; it.extra = Object.keys(rest).length ? rest : undefined; }
+  else if (slot === 'sidecar') it.sidecar = null;
+  else delete it.parts[slot];
+  showToast('info', `Se quitó «${file.name}»`, `Se volvió a leer «${it.layerName}» con los archivos que quedan.`);
+  processItem(id);
+}
+
 /* ---------------- procesamiento ---------------- */
-const RESULT_FIELDS = ['checks', 'issues', 'state', 'geojson', 'table', 'mapping', 'crs', 'srcCrs', 'hash', 'zipped', 'format', 'layerName', 'needsCrs'];
+const RESULT_FIELDS = ['checks', 'issues', 'state', 'geojson', 'table', 'mapping', 'crs', 'srcCrs', 'hash', 'zipped', 'format', 'layerName', 'needsCrs', 'missing'];
 
 /* Los datos geográficos son grandes: no se vuelven reactivos (solo se reasigna la referencia) */
 function rawify(it) {
@@ -180,7 +253,10 @@ async function processItem(id) {
   if (!it) return;
   cancelJob(it.job);
   dropRaw(it.rawJob);
-  Object.assign(it, { state: 'reading', progress: 0, checks: [], issues: [], geojson: null, table: null, mapping: null, message: null, needsCrs: false, hash: null, rawJob: null });
+  const keepName = it.processed ? it.layerName : null;   // un nombre que la persona ya escribió no se pisa al releer la capa
+  Object.assign(it, { state: 'reading', progress: 0, checks: [], issues: [], geojson: null, table: null, mapping: null, message: null, needsCrs: false, hash: null, rawJob: null, missing: [], declaredCrs: null });
+  const rec0 = studyById(id);
+  if (rec0) { rec0.facts = {}; resetAuto(rec0); }
   const nameChecks = Object.values(it.parts).filter(Boolean).flatMap(f => FC.checkName(f.name).map(c => [c[0], `${c[1]}: ${f.name}`, c[2]]));
   if (nameChecks.some(c => c[0] === 'err')) { it.checks.push(...nameChecks); it.state = 'blocked'; return finishItem(it); }
   if (!it.format) {
@@ -191,8 +267,9 @@ async function processItem(id) {
   const jobId = `${it.id}:${++jobSeq}`;
   it.job = jobId;
   const done = startTask(`Leyendo ${it.layerName}`);
-  const parts = Object.fromEntries(Object.entries(it.parts).filter(([k, f]) => f && (it.format !== 'shp' || ['shp', 'shx', 'dbf', 'prj', 'cpg'].includes(k))));
-  const result = await runJob({ id: jobId, kind: 'file', format: it.format, parts, hasApi: !!CFG.apiBase }, {
+  const srcFormat = it.srcFormat || it.format;   // el formato con que llegó (un ZIP sigue siendo ZIP aunque dentro haya un Shapefile)
+  const parts = Object.fromEntries(Object.entries(it.parts).filter(([k, f]) => f && (srcFormat !== 'shp' || ['shp', 'shx', 'dbf', 'prj', 'cpg'].includes(k))));
+  const result = await runJob({ id: jobId, kind: 'file', format: srcFormat, parts, extra: it.extra ? { ...it.extra } : undefined, hasApi: hasApi() }, {
     onProgress: v => { if (it.job === jobId) it.progress = v; },
     onStage: st => { if (it.job === jobId) it.state = st; }
   });
@@ -200,6 +277,9 @@ async function processItem(id) {
   it = byId(id);
   if (!result || !it || it.job !== jobId) return; // cancelado, reemplazado o quitado
   applyResult(it, result);
+  if (keepName) it.layerName = keepName;
+  it.processed = true;
+  if (result.stem !== undefined) it.zipStem = result.stem;
   if (result.needsCrs) it.rawJob = jobId;
   try {
     if (result.next?.kind === 'xml') processXML(it, result.next.text, result.next.xmlKind);
@@ -208,7 +288,59 @@ async function processItem(id) {
     it.checks.push(['err', 'No se pudo interpretar el archivo', err.message]);
     it.state = 'blocked';
   }
+  await harvestStudy(it, result);
   finishItem(it);
+  if (it.geojson && it.state === 'ready') refreshSessionData(it.id, it.geojson);   // si ya estaba en el mapa, se actualiza
+}
+
+/* ---------------- estudio de cada capa: lo que declara el archivo ---------------- */
+function noteInfo(it, info) {
+  const rec = studyById(it.id);
+  if (!rec || !info) return;
+  const filled = applyInfo(rec, info);
+  it.checks.push(filled.length
+    ? ['ok', `Datos del estudio leídos de ${info.source}`, `${filled.map(k => FIELD_LABELS[k]).join(', ')}. Revísalos y completa lo que falte.`]
+    : ['info', `${info.source} no declara datos nuevos para el estudio`]);
+}
+
+function infoFromXmlText(it, text, name) {
+  const res = parseMetadataXML(text, name);
+  if (res.error) { it.checks.push(['warn', `Metadatos de «${name}» no leídos`, res.error]); return null; }
+  return res.info;
+}
+
+/* Archivo de metadatos que acompaña a la capa (.shp.xml, .xml): se lee en la página, nunca se envía a interpretar al servidor */
+async function readSidecar(it) {
+  const file = it.parts.xml || it.sidecar;
+  if (!file) return null;
+  if (file.size > 2 * 1024 * 1024) { it.checks.push(['warn', `Metadatos de «${file.name}» no leídos`, 'El archivo supera los 2 MB.']); return null; }
+  return infoFromXmlText(it, await file.text(), file.name);
+}
+
+async function applySidecarNow(it) {
+  const info = await readSidecar(it);
+  if (info) { noteInfo(it, info); showToast('success', 'Metadatos añadidos', `Se aplicaron al estudio de «${it.layerName}».`); }
+}
+
+async function harvestStudy(it, result) {
+  const found = [];
+  if (result?.top) found.push(fromGeoJSON(result.top, it.layerName, it.parts.main?.name));
+  if (result?.sidecar) found.push(infoFromXmlText(it, result.sidecar.text, result.sidecar.name));
+  found.push(await readSidecar(it));
+  found.filter(Boolean).forEach(info => noteInfo(it, info));
+  inferTheme(it);
+}
+
+/* Sin metadatos que lo digan, el tema se deduce del nombre de la capa y de sus campos (queda como sugerido) */
+function inferTheme(it) {
+  const rec = studyById(it.id);
+  if (!rec || String(rec.sTheme || '').trim() || rec.edited.includes('sTheme')) return;
+  const fields = it.geojson ? [...new Set(it.geojson.features.slice(0, 200).flatMap(f => Object.keys(f.properties || {})))] : (it.table?.headers || []);
+  const theme = themeFromLayer(it.layerName, fields);
+  if (!theme) return;
+  rec.sTheme = theme;
+  rec.auto.sTheme = 'sugerido por el nombre y los campos de la capa';
+  it.checks.push(['info', `Tema detectado: ${theme}`, 'Se dedujo del nombre y los campos de la capa. Revísalo en el estudio.']);
 }
 
 function applyResult(it, r) {
@@ -232,6 +364,8 @@ function processXML(it, text, kind) {
   const feats = xmlFeatures(res.doc, kind);
   if (!feats.length) { it.checks.push(['err', 'Sin entidades geográficas', 'No se encontraron Placemark, wpt, trk ni rte.']); it.state = 'blocked'; return; }
   it.checks.push(['ok', `${feats.length.toLocaleString('es-MX')} entidades geográficas`]);
+  const own = kind === 'kml' ? fromKml(res.doc, it.parts.main?.name) : fromGpx(res.doc, it.parts.main?.name);
+  if (own) noteInfo(it, own);
   it.geojson = { type: 'FeatureCollection', features: feats };
   it.crs = 'EPSG:4326 (WGS 84)';
   IngestCore.checkCoords(it, true);
@@ -245,6 +379,8 @@ async function processXlsx(it, buffer) {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true, cellFormula: false });
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: true });
   it.checks.push(['ok', 'Fórmulas no ejecutadas', 'Se leen solo los valores almacenados.']);
+  const own = fromOffice(wb.Props, it.parts.main?.name);
+  if (own) noteInfo(it, own);
   IngestCore.prepareTable(it, rows, wb.SheetNames.length > 1 ? `Se usa la hoja «${wb.SheetNames[0]}» de ${wb.SheetNames.length}.` : '');
   rawify(it);
 }
@@ -260,6 +396,7 @@ export function clearItems() {
   batch.items.forEach(it => { cancelJob(it.job); dropRaw(it.rawJob); });
   batch.items.splice(0);
   batch.selected = null;
+  clearStudies();
 }
 
 export function removeItem(id) {
@@ -267,6 +404,7 @@ export function removeItem(id) {
   if (i < 0 || batch.items[i].state === 'sending') return;
   cancelJob(batch.items[i].job);
   dropRaw(batch.items[i].rawJob);
+  removeStudy(batch.items[i].id);
   batch.items.splice(i, 1);
   batch.selected = batch.items[Math.min(i, batch.items.length - 1)]?.id || null;
 }
@@ -278,11 +416,44 @@ export async function clearWithConfirm() {
   clearItems();
 }
 
+/* Une un archivo a una capa que vino en un ZIP: los metadatos van aparte y los componentes del Shapefile se leen junto al ZIP */
+function attachFile(it, ext, file) {
+  if (ext === 'xml') it.sidecar = file;
+  else it.extra = { ...(it.extra || {}), [ext]: file };
+}
+
+/* Añade a una capa solo el archivo que le falta (un componente del Shapefile, el .prj o los metadatos .xml).
+   Las demás capas y los demás archivos de esta capa no se tocan. */
+export async function addMissingFile(id, ext, file) {
+  const it = byId(id);
+  if (!it || !file || BUSY.includes(it.state) || it.state === 'sending') return;
+  if (extOf(file.name) !== ext) {
+    showToast('error', `Ese archivo no es un .${ext}`, `A «${it.layerName}» le falta el .${ext}; elegiste «${file.name}».`);
+    return;
+  }
+  const used = batch.items.reduce((sum, x) => sum + sizeOf(x), 0);
+  if (used + file.size > FC.LIMITS.maxBatchBytes) {
+    showToast('error', 'El lote no admite más datos', `El lote admite hasta ${(FC.LIMITS.maxBatchBytes / 1048576).toFixed(0)} MB en total.`);
+    return;
+  }
+  const zipped = it.srcFormat !== 'shp' && it.srcFormat !== undefined && it.zipStem !== undefined;
+  if (ext === 'xml') {
+    if (it.srcFormat === 'shp') it.parts.xml = file; else it.sidecar = file;
+    const info = await readSidecar(it);
+    if (info) { noteInfo(it, info); showToast('success', 'Metadatos añadidos', `Se leyeron de «${file.name}» y se aplicaron al estudio de «${it.layerName}».`); }
+    return;
+  }
+  if (zipped) attachFile(it, ext, file); else it.parts[ext] = file;
+  showToast('success', `Se añadió el .${ext}`, `Solo se volvió a leer «${it.layerName}»; las demás capas no cambian.`);
+  processItem(id);
+}
+
 /* Sistema de referencia declarado para un Shapefile sin .prj */
 export function declareCrs(id, v) {
   const it = byId(id);
   if (!it?.rawJob) return;
   const crs = v === 'geo' ? { kind: 'geo', datum: 'WGS84', label: 'Geográficas · WGS84 (declarado)' } : { kind: 'utm', zone: +v, datum: 'WGS84', label: `UTM ${v}N · WGS84 (declarado)` };
+  it.declaredCrs = v === 'geo' ? 'geo' : String(+v);
   const rawJob = it.rawJob;
   const base = it.checks.filter(c => c[1] !== 'Falta el archivo .prj');
   it.state = 'checking'; it.needsCrs = false; it.rawJob = null;
@@ -310,48 +481,87 @@ export function confirmMapping(id) {
   rawify(it);
 }
 
-/* «Ver en el mapa»: capa de la sesión, visible solo en este navegador */
+/* «Ver en el mapa»: capa de sesión, visible solo en este navegador. Su ficha sale del estudio de la capa. */
 export function viewOnMap(id) {
   const it = byId(id);
-  if (!it?.geojson) return;
-  const rec = {
-    id: `SESION-${Date.now().toString(36).toUpperCase()}`, cat: 'Capa de sesión', estatus: 'No publicada', tipo: FORMATS[it.format].label, temas: study.sTheme || '—',
-    resumen: study.sDesc || 'Archivo previsualizado en este navegador. No se ha enviado al servidor.', pub: study.sDate || '', act: study.sDate || '', escala: '—', res: '—', crs: it.crs || '—', bbox: [0, 0, 0, 0],
-    formato: FORMATS[it.format].label, tam: fmtSize(sizeOf(it)), lic: study.sLic || '—', palabras: [], resp: study.sResp || '—', fuente: study.sSource || study.sResp || '—', linaje: study.sLineage || '—', access: 'Solo esta sesión',
-    attrs: [...new Set(it.geojson.features.slice(0, 500).flatMap(ft => Object.keys(ft.properties || {})))].map(k => [k, '—', 'Campo del archivo'])
-  };
-  const layerId = addSessionLayer(it.layerName, it.geojson, rec);
+  const rec = studyById(id);
+  if (!it?.geojson || !rec) return;
+  const shown = layers.entries.find(e => e.studyId === id);
+  let layerId = shown?.id;
+  if (!shown) {
+    layerId = addSessionLayer(it.layerName, it.geojson, metaFromStudy(rec), id);
+    showToast('success', 'Capa de sesión agregada', 'Visible solo en este navegador. No se ha publicado.');
+  }
   router.push('/');
   selectLayer(layerId);
   nextTick(() => requestAnimationFrame(() => zoomToLayer(layerId)));
-  showToast('success', 'Capa de sesión agregada', 'Visible solo en este navegador. No se ha publicado.');
 }
 
-/* ---------------- estudio ---------------- */
-let studyResolver = null;
-export function openStudy() {
-  ui.studyOpen = true;
-  return new Promise(resolve => { studyResolver = resolve; });
+/* ---------------- estudio de cada capa ---------------- */
+export function editStudy(id) {
+  selectItem(id);
+  openStudyEditor(id);
 }
-export function closeStudy() {
-  ui.studyOpen = false;
-  studyResolver?.(studyComplete());
-  studyResolver = null;
+
+function geoBBox(gj) {
+  let w = 180, e = -180, so = 90, n = -90, any = false;
+  const walk = c => {
+    if (typeof c[0] === 'number') { any = true; if (c[0] < w) w = c[0]; if (c[0] > e) e = c[0]; if (c[1] < so) so = c[1]; if (c[1] > n) n = c[1]; }
+    else for (const x of c) walk(x);
+  };
+  for (const f of gj.features) {
+    const g = f.geometry;
+    if (!g) continue;
+    if (g.type === 'GeometryCollection') g.geometries.forEach(x => walk(x.coordinates)); else walk(g.coordinates);
+  }
+  return any ? [so, n, w, e] : null;
 }
-export function saveStudy(values) {
-  Object.assign(study, values);
-  showToast('success', 'Estudio guardado', `Las capas del lote heredan «${study.sTitle}».`);
+
+/* Mantiene al día, por capa, los datos del estudio que salen del propio archivo (formato, tamaño, extensión, campos) y si ya se lista en el catálogo */
+function syncStudy(it) {
+  const rec = studyById(it.id);
+  if (!rec) return;
+  renameStudyLayer(rec.id, it.layerName);
+  rec.listed = ['ready', 'server', 'sending', 'sent', 'failed'].includes(it.state);
+  rec.busy = it.state === 'sending';
+  const key = `${it.state}:${it.geojson ? it.geojson.features.length : 0}:${sizeOf(it)}:${it.crs || ''}`;
+  if (rec.facts.key === key) return;
+  const fmt = FORMATS[it.format] || FORMATS[it.srcFormat];
+  rec.facts = {
+    key, tipo: fmt?.label || '—', formato: fmt?.label || '—', tam: fmtSize(sizeOf(it)), crs: it.crs || '', n: it.geojson?.features.length || 0,
+    bbox: it.geojson ? geoBBox(it.geojson) : null,
+    attrs: it.geojson ? [...new Set(it.geojson.features.slice(0, 500).flatMap(ft => Object.keys(ft.properties || {})))].map(k => [k, '—', 'Campo del archivo']) : []
+  };
 }
+watch(() => batch.items.map(x => `${x.id}:${x.state}:${x.layerName}:${x.geojson ? 1 : 0}`).join('|'), () => batch.items.forEach(syncStudy), { flush: 'post' });
 
 /* ---------------- envío ---------------- */
-/* Solo se envía al mismo origen o a HTTPS: evita filtrar archivos a destinos inseguros */
-function apiUrl() {
-  if (!CFG.apiBase) return null;
-  try {
-    const url = new URL(CFG.apiBase, location.origin);
-    if (url.origin !== location.origin && url.protocol !== 'https:') return null;
-    return url.href.replace(/\/$/, '');
-  } catch { return null; }
+/* Solo se envía al mismo origen o a HTTPS (lib/api.js): evita filtrar archivos a destinos inseguros */
+/* Mensaje según el estado que informa el servidor */
+function showServerState(it, body) {
+  const texto = (body.estadoTexto || 'recibida').toLowerCase();
+  if (body.estado === 'recibida') it.message = msg('loader-2', ['b', 'Recibida en cuarentena.'], ['t', ' El servidor la está revisando (antivirus, validación y conversión con GDAL)…']);
+  else if (body.estado === 'requiere_correccion') {
+    const err = (body.revision || []).find(c => c[0] === 'err');
+    it.message = msg('alert-circle', ['b', 'El servidor la devolvió para corrección.'], ['t', ` ${err ? `${err[1]}${err[2] ? ` (${err[2]})` : ''}.` : ''} Nada se publicó.`]);
+  } else it.message = msg('check-circle-2', ['b', 'Revisada por el servidor.'], ['t', ` Estado: ${texto}. Una persona administradora la aprueba antes de publicarla (pantalla Revisión).`]);
+}
+
+/* Después de enviar, la revisión del servidor sigue en segundo plano: se consulta su estado hasta que termina */
+async function followUpload(itemId, serverId) {
+  for (let i = 0, wait = 1500; i < 120; i++, wait = Math.min(wait * 1.3, 10000)) {
+    await new Promise(r => setTimeout(r, wait));
+    const it = byId(itemId);
+    if (!it || it.serverId !== serverId) return;
+    let body;
+    try { body = await api(`/cargas/${serverId}`); } catch { continue; }
+    if (body.estado === 'recibida') continue;
+    showServerState(it, body);
+    const bad = body.estado === 'requiere_correccion';
+    if (bad) it.state = 'failed';
+    showToast(bad ? 'error' : 'success', bad ? 'Devuelta por el servidor' : 'Revisión del servidor superada', `«${it.layerName}»: ${body.estadoTexto.toLowerCase()}.`);
+    return;
+  }
 }
 
 function sendOne(it) {
@@ -360,11 +570,15 @@ function sendOne(it) {
     Object.values(it.parts).forEach(file => file && fd.append('archivos', file));
     fd.append('capa', it.layerName);
     if (it.hash) fd.append('sha256', it.hash);
-    fd.append('estudio', JSON.stringify(study));
+    fd.append('estudio', JSON.stringify(studyPayload(studyById(it.id))));
+    /* Lo que decidió la persona y el servidor necesita para repetir la revisión */
+    if (it.declaredCrs) fd.append('crs', it.declaredCrs);
+    if (it.mapping?.confirmed) fd.append('mapeo', JSON.stringify({ x: it.mapping.x, y: it.mapping.y, crs: it.mapping.crs }));
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${apiUrl()}/cargas/`);
     xhr.setRequestHeader('X-Requested-With', 'GeoportalCEDESU');
-    xhr.withCredentials = new URL(apiUrl()).origin === location.origin;
+    xhr.setRequestHeader('X-CSRFToken', csrfToken());
+    xhr.withCredentials = !sameOrigin();
     xhr.timeout = 10 * 60 * 1000;
     xhr.ontimeout = () => { it.state = 'failed'; it.message = msg('cloud-off', ['b', 'El servidor tardó demasiado en responder.'], ['t', ' Nada se publicó.']); resolve(); };
     xhr.upload.onprogress = e => { if (e.lengthComputable) it.progress = e.loaded / e.total; };
@@ -372,7 +586,12 @@ function sendOne(it) {
       let body = {}; try { body = JSON.parse(xhr.responseText); } catch { /* sin JSON */ }
       if (xhr.status >= 200 && xhr.status < 300) {
         it.state = 'sent';
-        it.message = msg('check-circle-2', ['b', 'Recibida por el servidor.'], ['t', ` Estado: ${body.estado || 'recibida'}${body.id ? ` · ${body.id}` : ''}. Pendiente de revisión.`]);
+        it.serverId = body.id || null;
+        showServerState(it, body);
+        if (body.estado === 'recibida' && it.serverId) followUpload(it.id, it.serverId);
+      } else if (xhr.status === 401) {
+        it.state = 'failed';
+        it.message = msg('alert-circle', ['b', 'La sesión caducó.'], ['t', ' Vuelve a iniciar sesión y envíala de nuevo. Nada se publicó.']);
       } else {
         it.state = 'failed';
         it.message = msg('alert-circle', ['b', `El servidor la rechazó (${xhr.status}).`], ['t', ` ${body.detalle || body.detail || xhr.statusText || ''}`]);
@@ -384,25 +603,44 @@ function sendOne(it) {
   });
 }
 
-export async function sendBatch() {
-  const list = batch.items.filter(it => ['ready', 'server', 'failed'].includes(it.state)).map(it => it.id);
+const SENDABLE = ['ready', 'server', 'failed'];
+export const canSend = it => !!it && SENDABLE.includes(it.state);
+
+/* Envía solo esta capa, con su propio estudio */
+export function sendLayer(id) {
+  const it = byId(id);
+  if (canSend(it)) return sendLayers([id]);
+}
+
+export function sendBatch() {
+  return sendLayers(batch.items.filter(canSend).map(it => it.id));
+}
+
+async function sendLayers(list) {
   if (!list.length) return;
-  if (!studyComplete()) {
-    showToast('info', 'Completa el estudio', 'Las capas necesitan los metadatos del estudio antes de enviarse.');
-    if (!(await openStudy())) return;
+  const incomplete = list.map(id => byId(id)).filter(it => !studyComplete(studyById(it.id)));
+  if (incomplete.length) {
+    const first = incomplete[0];
+    showToast('info', incomplete.length === 1 ? 'Falta completar un estudio' : `Faltan por completar ${incomplete.length} estudios`,
+      `«${first.layerName}»: ${missingFields(studyById(first.id)).map(k => FIELD_LABELS[k].toLowerCase()).join(', ')}.`);
+    editStudy(first.id);
+    return;
   }
-  const pending = batch.items.filter(it => ['input', 'blocked'].includes(it.state)).length;
+  const single = list.length === 1 && batch.items.filter(canSend).length > 1;
+  const pending = single ? 0 : batch.items.filter(it => ['input', 'blocked'].includes(it.state)).length;
   const ok = await confirmAction({
-    title: `Enviar ${list.length} ${list.length === 1 ? 'capa' : 'capas'} a revisión`,
-    text: `Se enviarán al servidor dentro del estudio «${study.sTitle}». Quedarán en cuarentena y pendientes de aprobación; no se publicarán todavía.${pending ? ` ${pending} ${pending === 1 ? 'capa con pendientes no se enviará' : 'capas con pendientes no se enviarán'}.` : ''}`,
+    title: single ? `Enviar «${byId(list[0]).layerName}» a revisión` : `Enviar ${list.length} ${list.length === 1 ? 'capa' : 'capas'} a revisión`,
+    text: `${single
+      ? 'Se envía sola, con su estudio; las demás capas siguen en el lote. Quedará en cuarentena y pendiente de aprobación; no se publicará todavía.'
+      : 'Cada capa se envía por separado, con su propio estudio. Quedarán en cuarentena y pendientes de aprobación; no se publicarán todavía.'}${pending ? ` ${pending} ${pending === 1 ? 'capa con pendientes no se enviará' : 'capas con pendientes no se enviarán'}.` : ''}`,
     ok: 'Enviar'
   });
   if (!ok) return;
-  if (CFG.apiBase && !apiUrl()) {
+  if (hasApi() && !apiUrl()) {
     showToast('error', 'Servidor de publicación inseguro', 'apiBase debe ser del mismo origen o usar HTTPS. No se envió nada.');
     return;
   }
-  if (!CFG.apiBase) {
+  if (!hasApi()) {
     list.forEach(id => {
       const it = byId(id);
       it.state = 'failed';
@@ -411,7 +649,7 @@ export async function sendBatch() {
     showToast('error', 'Envío no disponible', 'No hay servidor de publicación configurado. Nada se publicó.');
     return;
   }
-  const done = startTask('Enviando lote');
+  const done = startTask(list.length === 1 ? `Enviando ${byId(list[0])?.layerName || 'capa'}` : 'Enviando lote');
   for (const id of list) {
     const it = byId(id);
     if (!it) continue;
@@ -421,6 +659,9 @@ export async function sendBatch() {
   done();
 }
 
-/* Al cerrar la sesión se vacía el lote y el estudio */
-onSessionEnd(() => { clearItems(); Object.assign(study, emptyStudy()); });
-export const hasApi = () => !!CFG.apiBase;
+/* Si se elimina el estudio (desde el catálogo o el diálogo), su capa sale del lote */
+onStudyDeleted(id => removeItem(id));
+
+/* Al cerrar la sesión se vacían el lote y los estudios de sus capas */
+onSessionEnd(() => { clearItems(); });
+export { hasApi };

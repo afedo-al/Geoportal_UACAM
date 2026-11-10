@@ -54,11 +54,13 @@ function onMap() {
         <p class="prop-desc lead">{{ m.resumen }}</p>
         <KeyValues :rows="[['Tema', m.temas], ['Responsable', m.resp], ['Fuente original', m.fuente], ['Fecha de publicación', fmtDate(m.pub)], ['Última actualización', fmtDate(m.act)], ['Licencia de uso', m.lic], ['Clasificación de acceso', access]]" />
         <div class="section-label">Palabras clave</div>
-        <div class="tags"><span v-for="t in m.palabras || []" :key="t" class="badge">{{ t }}</span></div>
+        <div v-if="(m.palabras || []).length" class="tags"><span v-for="t in m.palabras" :key="t" class="badge">{{ t }}</span></div>
+        <p v-else class="prop-desc flush-top">El registro no declara palabras clave.</p>
       </div>
 
       <div v-show="tab === 'cob'" id="mt-cob" class="tabpanel flush" role="tabpanel" aria-labelledby="mt-tab-cob">
-        <div class="bbox">
+        <p v-if="!m.bbox" class="prop-desc lead">La extensión se calcula al leer las geometrías. Este formato lo interpreta el servidor, así que todavía no se conoce.</p>
+        <div v-else class="bbox">
           <span class="n">{{ m.bbox[1].toFixed(2) }}° N</span><span class="w">{{ Math.abs(m.bbox[2]).toFixed(2) }}° O</span>
           <span class="box"></span>
           <span class="e">{{ Math.abs(m.bbox[3]).toFixed(2) }}° O</span><span class="s">{{ m.bbox[0].toFixed(2) }}° N</span>

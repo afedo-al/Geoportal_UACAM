@@ -1,26 +1,40 @@
-/* Captura de puntos de campo. Hasta que exista el servicio de publicación
-   se guardan solo en este navegador (localStorage). */
+/* Captura de puntos de campo. Con el servicio de publicación (cuando exista) se guardan en el servidor y los ve
+   todo el equipo con sesión; sin él (un build estático) se guardan solo en este navegador (localStorage). */
 import { reactive, watch } from 'vue';
 import { store, downloadBlob, safePhotoURL } from '../lib/format.js';
-import { mapHooks, setGpsMarkers } from './map.js';
-import { showToast, startTask } from './ui.js';
+import { setGpsMarkers } from './map.js';
+import { showToast, startTask, confirmAction } from './ui.js';
+import { onSessionStart, onSessionEnd } from './session.js';
+import { api, apiHref, hasApi, ApiError } from '../lib/api.js';
+import { LAT, LON, coordError, inWorkArea } from '../lib/coords.js';
+
+/* remote: los puntos viven en el servidor */
+export const REMOTE = hasApi();
+
+export { LAT, LON, coordError };
 
 /* Los validadores se cargan solo al exportar o importar: no forman parte de la carga inicial del mapa */
 const fileCheck = () => import('../lib/filecheck.js').then(m => m.FileCheck);
 
 const GPS_VERSION = 'v6-empty';
 const PHOTO_MAX = 2 * 1024 * 1024;
-const LAT = [14, 22], LON = [-93, -86]; // rango de Campeche
 
 const now = () => new Date();
 const emptyForm = () => ({ lat: '19.84530', lon: '-90.52283', name: '', date: now().toISOString().slice(0, 10), time: now().toTimeString().slice(0, 5), type: 'Muestra de suelo', description: '', photo: '', photoFile: null });
 
-export const gps = reactive({ points: [], counter: 0, form: emptyForm(), invalid: { lat: false, lon: false }, photoReset: 0 });
+/* errors: mensaje junto a cada campo; editing: id del punto en edición; source: de dónde salieron las coordenadas */
+export const gps = reactive({ points: [], counter: 0, form: emptyForm(), errors: { lat: '', lon: '' }, editing: null, selected: null, source: 'inicial', locating: false, photoReset: 0 });
+
+export function validateCoords() {
+  gps.errors.lat = coordError(gps.form.lat, 'lat');
+  gps.errors.lon = coordError(gps.form.lon, 'lon');
+  return !gps.errors.lat && !gps.errors.lon;
+}
 
 function sanitizePoint(pt) {
   if (!pt || typeof pt !== 'object') return null;
   const lat = Number(pt.lat), lon = Number(pt.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < LAT[0] || lat > LAT[1] || lon < LON[0] || lon > LON[1]) return null;
+  if (!inWorkArea(lat, lon)) return null;
   const str = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, n);
   return {
     id: str(pt.id, 40), name: str(pt.name, 120), lat, lon, type: str(pt.type, 60), description: str(pt.description, 1000),
@@ -29,12 +43,48 @@ function sanitizePoint(pt) {
   };
 }
 
+/* Punto tal como lo devuelve el servidor: la fotografía es una ruta de la API */
+const fromServer = p => sanitizePoint({ ...p, photo: p.photo ? apiHref(p.photo) : '' });
+const apiMessage = err => (err instanceof ApiError ? err.detalle : 'No se pudo conectar con el servidor.');
+
 function persist() {
+  if (REMOTE) return true;
   try { localStorage.setItem('cedesuGPSPoints', JSON.stringify(gps.points)); return true; }
   catch { showToast('error', 'No se pudo guardar', 'El almacenamiento del navegador está lleno o bloqueado (la fotografía puede ser demasiado grande).'); return false; }
 }
 
+async function loadRemote() {
+  try {
+    const { puntos } = await api('/puntos');
+    gps.points = puntos.map(fromServer).filter(Boolean);
+    gps.counter = gps.points.length;
+    setGpsMarkers(gps.points);
+    await migrateLocal();
+  } catch (err) { showToast('error', 'No se cargaron los puntos', apiMessage(err)); }
+}
+
+/* Puntos que se capturaron antes en este navegador, sin servidor: se suben una vez y se borran de aquí */
+async function migrateLocal() {
+  const saved = store.get('cedesuGPSPoints', null);
+  if (!Array.isArray(saved) || !saved.length) return;
+  const local = saved.map(sanitizePoint).filter(Boolean);
+  if (!local.length) { store.set('cedesuGPSPoints', null); return; }
+  try {
+    const { puntos } = await api('/puntos/lote', { method: 'POST', json: { puntos: local } });
+    gps.points.push(...puntos.map(fromServer).filter(Boolean));
+    gps.counter = gps.points.length;
+    setGpsMarkers(gps.points);
+    store.set('cedesuGPSPoints', null);
+    showToast('success', 'Puntos locales subidos al servidor', `${puntos.length} ${puntos.length === 1 ? 'punto capturado' : 'puntos capturados'} antes en este navegador ya están en el servidor.`);
+  } catch (err) { showToast('warn', 'Puntos locales sin subir', `Siguen en este navegador: ${apiMessage(err)}`); }
+}
+
 export function initGps() {
+  if (REMOTE) {
+    onSessionStart(() => loadRemote());
+    onSessionEnd(() => { gps.points = []; gps.counter = 0; gps.selected = null; resetForm(); setGpsMarkers([]); });
+    return;
+  }
   const savedVersion = store.get('cedesuGPSVersion', null);
   const saved = store.get('cedesuGPSPoints', null);
   if (savedVersion === GPS_VERSION && Array.isArray(saved)) {
@@ -66,41 +116,128 @@ export async function selectPhoto(file) {
   gps.form.photo = await readDataURL(file);
 }
 
-/* Un clic en el mapa llena la latitud y la longitud del formulario */
-export function setManualCoordinates(lat, lon) {
+/* Un clic en el mapa de la pantalla de captura llena la latitud y la longitud del formulario.
+   (Antes cualquier clic en el visor principal las reescribía sin avisar, incluso al medir.) */
+export function setManualCoordinates(lat, lon, source = 'mapa') {
   gps.form.lat = Number(lat).toFixed(6);
   gps.form.lon = Number(lon).toFixed(6);
+  gps.source = source;
+  validateCoords();
 }
-mapHooks.mapClick = setManualCoordinates;
+
+/* Ubicación del dispositivo: solo cuando la persona la pide; no se envía a ningún servidor */
+export function useDeviceLocation() {
+  if (!('geolocation' in navigator)) return showToast('error', 'Ubicación no disponible', 'Este navegador no permite consultar la ubicación.');
+  gps.locating = true;
+  navigator.geolocation.getCurrentPosition(pos => {
+    gps.locating = false;
+    setManualCoordinates(pos.coords.latitude, pos.coords.longitude, 'dispositivo');
+    if (gps.errors.lat || gps.errors.lon) showToast('warn', 'Tu ubicación está fuera del área de trabajo', 'Se escribió en el formulario, pero el punto solo se guarda si está en Campeche o sus alrededores.');
+  }, err => {
+    gps.locating = false;
+    showToast('error', 'No se obtuvo la ubicación', err.code === 1 ? 'El permiso de ubicación está denegado para este sitio.' : 'El dispositivo no respondió a tiempo. Inténtalo de nuevo o elige el punto en el mapa.');
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+}
 
 function resetForm() {
   const f = emptyForm();
   Object.assign(gps.form, { name: '', description: '', photo: '', photoFile: null, date: f.date, time: f.time });
+  gps.editing = null;
   gps.photoReset++;
+}
+
+export function removePhoto() {
+  gps.form.photo = ''; gps.form.photoFile = null; gps.photoReset++;
+}
+
+/* Edición: el formulario toma los datos del punto y «Guardar cambios» lo reemplaza en su lugar */
+export function editPoint(id) {
+  const p = gps.points.find(x => x.id === id);
+  if (!p) return;
+  Object.assign(gps.form, { lat: String(p.lat), lon: String(p.lon), name: p.name, date: p.date, time: p.time, type: p.type, description: p.description, photo: p.photo, photoFile: null });
+  gps.editing = id; gps.selected = id; gps.source = 'punto';
+  gps.errors.lat = ''; gps.errors.lon = '';
+  gps.photoReset++;
+}
+export function cancelEdit() { resetForm(); }
+
+export async function deletePoint(id) {
+  const i = gps.points.findIndex(x => x.id === id);
+  if (i < 0) return;
+  const p = gps.points[i];
+  const ok = await confirmAction({ title: `Eliminar «${p.name}»`, text: REMOTE ? 'El punto se borra del servidor para todo el equipo. No se puede deshacer.' : 'El punto se borra de este navegador. Si no lo exportaste a CSV, no se puede recuperar.', ok: 'Eliminar punto', danger: true });
+  if (!ok) return;
+  if (REMOTE) {
+    try { await api(`/puntos/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
+    catch (err) { showToast('error', 'No se eliminó el punto', apiMessage(err)); return; }
+  }
+  const at = gps.points.findIndex(x => x.id === id);
+  if (at < 0) return;
+  gps.points.splice(at, 1);
+  if (!persist()) { gps.points.splice(at, 0, p); return; }
+  if (gps.editing === id) resetForm();
+  if (gps.selected === id) gps.selected = null;
+  showToast('success', 'Punto eliminado', p.name);
 }
 
 export async function addPoint() {
   const f = gps.form;
-  const lat = Number(f.lat), lon = Number(f.lon);
-  gps.invalid.lat = !(Number.isFinite(lat) && lat >= LAT[0] && lat <= LAT[1]);
-  gps.invalid.lon = !(Number.isFinite(lon) && lon >= LON[0] && lon <= LON[1]);
-  if (gps.invalid.lat) return showToast('error', 'Latitud inválida', 'Usa una latitud entre 14 y 22 para Campeche.');
-  if (gps.invalid.lon) return showToast('error', 'Longitud inválida', 'Usa una longitud entre −93 y −86 para Campeche.');
-  let photo = '';
+  if (!validateCoords()) return false;
+  const lat = Number(String(f.lat).replace(',', '.')), lon = Number(String(f.lon).replace(',', '.'));
+  let photo = f.photo && !f.photoFile ? safePhotoURL(f.photo) : '';
   if (f.photoFile) {
     const problem = await checkPhoto(f.photoFile);
-    if (problem) return showToast('error', 'Fotografía no válida', problem);
+    if (problem) { showToast('error', 'Fotografía no válida', problem); return false; }
     photo = await readDataURL(f.photoFile);
   }
+  const fields = { lat, lon, type: f.type || 'Punto de referencia', description: f.description.trim(), date: f.date || now().toISOString().slice(0, 10), time: f.time || now().toTimeString().slice(0, 5), photo };
+  if (REMOTE) return saveRemote(f, fields);
+  if (gps.editing) {
+    const i = gps.points.findIndex(x => x.id === gps.editing);
+    if (i < 0) { resetForm(); return false; }
+    const before = gps.points[i];
+    const point = { ...before, ...fields, name: f.name.trim() || before.name };
+    gps.points.splice(i, 1, point);
+    if (!persist()) { gps.points.splice(i, 1, before); return false; }
+    setGpsMarkers(gps.points);
+    showToast('success', 'Cambios guardados', `${point.name} · solo en este navegador.`);
+    gps.selected = point.id;
+    resetForm();
+    return true;
+  }
   gps.counter++;
-  const point = {
-    id: `P-${String(gps.counter).padStart(3, '0')}`, name: f.name.trim() || `Punto ${gps.counter}`, lat, lon,
-    type: f.type || 'Punto de referencia', description: f.description.trim(), date: f.date || now().toISOString().slice(0, 10), time: f.time || now().toTimeString().slice(0, 5), photo
-  };
+  const point = { id: `P-${String(gps.counter).padStart(3, '0')}`, name: f.name.trim() || `Punto ${gps.counter}`, ...fields };
   gps.points.push(point);
-  if (!persist()) { gps.points.pop(); gps.counter--; return; }
-  showToast('success', 'Punto guardado', `${point.name} · guardado en este navegador.`);
+  if (!persist()) { gps.points.pop(); gps.counter--; return false; }
+  showToast('success', 'Punto guardado', `${point.name} · solo en este navegador.`);
+  gps.selected = point.id;
   resetForm();
+  return true;
+}
+
+/* Guardado en el servidor. La fotografía solo viaja si es nueva; si no cambió se conserva la que ya tiene. */
+async function saveRemote(f, fields) {
+  const editing = gps.editing;
+  const before = editing ? gps.points.find(x => x.id === editing) : null;
+  const body = { ...fields, name: f.name.trim() };
+  if (before && fields.photo === before.photo) delete body.photo;
+  const done = startTask('Guardando punto');
+  let saved;
+  try {
+    saved = fromServer(await api(editing ? `/puntos/${encodeURIComponent(editing)}` : '/puntos', { method: editing ? 'PUT' : 'POST', json: body }));
+  } catch (err) {
+    showToast('error', 'No se guardó el punto', apiMessage(err));
+    return false;
+  } finally { done(); }
+  if (!saved) return false;
+  const i = gps.points.findIndex(x => x.id === saved.id);
+  if (i >= 0) gps.points.splice(i, 1, saved); else gps.points.push(saved);
+  gps.counter = gps.points.length;
+  setGpsMarkers(gps.points);
+  showToast('success', editing ? 'Cambios guardados' : 'Punto guardado', `${saved.name} · en el servidor.`);
+  gps.selected = saved.id;
+  resetForm();
+  return true;
 }
 
 export async function exportCSV() {
@@ -138,7 +275,7 @@ export async function importExcel(file) {
     rows.forEach((row, index) => {
       const lat = Number(rowValue(row, ['latitud', 'latitude', 'lat']));
       const lon = Number(rowValue(row, ['longitud', 'longitude', 'lon', 'lng']));
-      if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < LAT[0] || lat > LAT[1] || lon < LON[0] || lon > LON[1]) { skipped.push(index + 2); return; }
+      if (!inWorkArea(lat, lon)) { skipped.push(index + 2); return; }
       const rawDate = rowValue(row, ['fecha', 'date']);
       imported.push({
         id: String(rowValue(row, ['id', 'id_muestra', 'idpunto']) || `EXCEL-${gps.points.length + imported.length + 1}`),
@@ -155,6 +292,16 @@ export async function importExcel(file) {
     }
     if (!imported.length) return showToast('error', 'Sin coordenadas', 'No se encontraron columnas de latitud y longitud válidas.');
     const clean = imported.map(sanitizePoint).filter(Boolean);
+    if (REMOTE) {
+      try {
+        const { puntos } = await api('/puntos/lote', { method: 'POST', json: { puntos: clean.map(p => ({ ...p, photo: '' })) } });
+        gps.points.push(...puntos.map(fromServer).filter(Boolean));
+        gps.counter = gps.points.length;
+        setGpsMarkers(gps.points);
+        showToast('success', 'Excel importado', `${puntos.length} puntos guardados en el servidor.`);
+      } catch (err) { showToast('error', 'No se importó el Excel', apiMessage(err)); }
+      return;
+    }
     gps.points.push(...clean);
     gps.counter = gps.points.length;
     if (!persist()) { gps.points.splice(-clean.length); return; }

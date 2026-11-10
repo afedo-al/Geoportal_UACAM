@@ -16,11 +16,13 @@ const NAV = [
   { name: 'mapa', to: '/', icon: 'map', label: 'Mapa' },
   { name: 'catalogo', to: '/catalogo', icon: 'book-open', label: 'Catálogo', long: ' de estudios' },
   { name: 'carga', to: '/carga', icon: 'upload', label: 'Carga', long: ' de datos', admin: true },
-  { name: 'gps', to: '/gps', icon: 'satellite-dish', label: 'Captura GPS', admin: true }
+  { name: 'gps', to: '/gps', icon: 'satellite-dish', label: 'Captura GPS', admin: true },
+  { name: 'revision', to: '/revision', icon: 'shield-check', label: 'Revisión', admin: true }
 ];
 const visibleNav = computed(() => NAV.filter(n => !n.admin || session.admin));
 const task = computed(() => ui.tasks.at(-1)?.label || '');
-const initials = computed(() => session.admin?.name.split(' ').map(w => w[0]).slice(0, 2).join('') || '');
+/* Iniciales sin el título (Dra., Mtro., Ing.…) */
+const initials = computed(() => session.admin?.name.split(/\s+/).filter(w => w && !w.endsWith('.')).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '');
 
 function mobileMenu(e) {
   openMenu(e.currentTarget, visibleNav.value.map(n => ({ act: n.to, icon: n.icon, label: n.label + (n.long || '') })), {
@@ -31,7 +33,7 @@ function mobileMenu(e) {
 function sessionClick(e) {
   if (!session.admin) return openLogin();
   openMenu(e.currentTarget, [{ act: 'logout', icon: 'log-out', label: 'Cerrar sesión' }], {
-    align: 'right', header: { title: session.admin.name, sub: session.admin.email },
+    align: 'right', header: { title: session.admin.name, sub: [session.admin.cargo, session.admin.email].filter(Boolean).join(' · ') },
     onSelect: () => endSession('Hasta pronto.')
   });
 }
@@ -39,7 +41,7 @@ function sessionClick(e) {
 
 <template>
   <header class="topbar">
-    <a class="brand" href="#/" aria-label="Geoportal CEDESU, ir al mapa" @click.prevent="router.push('/')">
+    <a class="brand" href="#/" @click.prevent="router.push('/')">
       <span class="brand-logos">
         <img class="uacam" :src="logoUacam" width="30" height="30" alt="">
         <img class="logo-cedesu" :src="logoCedesu" width="30" height="30" alt="">

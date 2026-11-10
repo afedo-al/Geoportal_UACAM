@@ -372,8 +372,9 @@ export const IngestCore = (() => {
     const p = job.parts;
     r.checks.push(['ok', 'Componentes recibidos', Object.keys(p).map(k => `.${k}`).join(' · ')]);
     const missing = ['shp', 'shx', 'dbf'].filter(k => !p[k]);
+    r.missing = missing;
     if (missing.length) {
-      r.checks.push(['err', `Faltan componentes: ${missing.map(m => `.${m}`).join(', ')}`, 'Un Shapefile necesita .shp, .shx y .dbf del mismo conjunto. Agrega los archivos que faltan al lote.']);
+      r.checks.push(['err', `Faltan componentes: ${missing.map(m => `.${m}`).join(', ')}`, 'Un Shapefile necesita .shp, .shx y .dbf del mismo conjunto. Añade solo el archivo que falta a esta capa; los demás no hace falta volver a elegirlos.']);
       r.state = 'blocked';
       return r;
     }
@@ -409,17 +410,34 @@ export const IngestCore = (() => {
     if (shps.length > 1) r.checks.push(['info', `El ZIP contiene ${shps.length} Shapefile`, `Se previsualiza «${shps[0].name}». Para revisarlos por separado, súbelos como capas independientes.`]);
     const stem = shps[0].name.replace(/\.shp$/i, '').toLowerCase();
     const comp = ext => entries.find(e => e.name.toLowerCase() === `${stem}.${ext}`);
-    const missing = ['shx', 'dbf'].filter(x => !comp(x));
-    if (missing.length) { r.checks.push(['err', `Faltan componentes en el ZIP: ${missing.map(m => `.${m}`).join(', ')}`, 'Un Shapefile necesita .shp, .shx y .dbf del mismo conjunto.']); r.state = 'blocked'; return r; }
+    const extra = job.extra || {};                       // componentes que la persona añadió aparte, sin volver a subir el ZIP
+    const part = async ext => (comp(ext) ? zipRead(buf, comp(ext)) : extra[ext] ? readFile(extra[ext], () => {}) : null);
+    const missing = ['shx', 'dbf'].filter(x => !comp(x) && !extra[x]);
+    r.stem = stem.replace(/^.*\//, '');
+    r.missing = missing;
+    if (Object.keys(extra).length) r.checks.push(['ok', 'Componentes añadidos aparte', Object.keys(extra).map(k => `.${k}`).join(' · ')]);
+    if (missing.length) { r.checks.push(['err', `Faltan componentes en el ZIP: ${missing.map(m => `.${m}`).join(', ')}`, 'Un Shapefile necesita .shp, .shx y .dbf del mismo conjunto. Añade solo el archivo que falta a esta capa; no hace falta volver a subir el ZIP.']); r.state = 'blocked'; return r; }
+    const side = entries.find(e => [`${stem}.shp.xml`, `${stem}.xml`].includes(e.name.toLowerCase()) && e.usize <= 2 * 1024 * 1024);
+    if (side) r.sidecar = { name: side.name.replace(/^.*\//, ''), text: new TextDecoder().decode(await zipRead(buf, side)) };
     r.format = 'shp';
     r.zipped = true;
     r.layerName = shps[0].name.replace(/^.*\//, '').replace(/\.shp$/i, '').replace(/[_-]+/g, ' ');
     alive(job.id);
     return parseShapeBuffers(job, r, {
-      shpBuf: await zipRead(buf, shps[0]), dbfBuf: await zipRead(buf, comp('dbf')), shxBuf: await zipRead(buf, comp('shx')),
-      prjBuf: comp('prj') ? await zipRead(buf, comp('prj')) : null,
-      cpgBuf: comp('cpg') ? await zipRead(buf, comp('cpg')) : null
+      shpBuf: await zipRead(buf, shps[0]), dbfBuf: await part('dbf'), shxBuf: await part('shx'),
+      prjBuf: await part('prj'), cpgBuf: await part('cpg')
     });
+  }
+
+  /* Miembros de primer nivel del GeoJSON que son texto (algunos programas guardan ahí título y licencia) */
+  function topMembers(gj) {
+    const out = {};
+    for (const k of ['name', 'title', 'description', 'license', 'attribution', 'author', 'source', 'date', 'created', 'keywords']) {
+      const v = gj?.[k];
+      if (typeof v === 'string') out[k] = v.slice(0, 2000);
+      else if (k === 'keywords' && Array.isArray(v)) out[k] = v.filter(x => typeof x === 'string').join(', ').slice(0, 500);
+    }
+    return Object.keys(out).length ? out : null;
   }
 
   async function runSingle(job, r, emit) {
@@ -467,6 +485,7 @@ export const IngestCore = (() => {
       r.checks.push(['ok', 'Estructura GeoJSON válida', `${fc.features.length.toLocaleString('es-MX')} entidades`]);
       if (gj.crs) r.checks.push(['warn', 'El archivo declara un CRS propio', 'GeoJSON (RFC 7946) usa WGS 84; confirma que las coordenadas estén en grados.']);
       r.geojson = fc; r.crs = 'EPSG:4326 (WGS 84)';
+      r.top = topMembers(gj);
       return checkCoords(r, true);
     }
     if (job.format === 'kml' || job.format === 'gpx') { r.next = { kind: 'xml', xmlKind: job.format, text: new TextDecoder().decode(buf) }; return r; }

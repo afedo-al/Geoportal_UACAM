@@ -1,0 +1,201 @@
+<script setup>
+/* Revisión de cargas (solo con sesión). Cada capa enviada desde Carga llega al servidor en cuarentena,
+   pasa la segunda revisión automática y espera aquí a que una persona administradora la apruebe y la publique.
+   Flujo: en revisión → aprobada → publicada → archivada, con «requiere corrección» para devolverla. */
+import { ref, computed, watch, onMounted } from 'vue';
+import Icon from '../components/Icon.vue';
+import KeyValues from '../components/KeyValues.vue';
+import PreviewMap from '../components/PreviewMap.vue';
+import { session } from '../stores/session.js';
+import { showToast, confirmAction } from '../stores/ui.js';
+import { loadPublished } from '../stores/layers.js';
+import { api, hasApi, ApiError } from '../lib/api.js';
+import { FIELD_LABELS } from '../lib/study-fields.js';
+
+const FILTERS = [
+  ['recibida', 'En proceso'], ['en_revision', 'En revisión'], ['aprobada', 'Aprobadas'], ['requiere_correccion', 'Requieren corrección'],
+  ['publicada', 'Publicadas'], ['archivada', 'Archivadas'], ['', 'Todas']
+];
+const BADGE = { en_revision: 'badge-info', aprobada: 'badge-ok', requiere_correccion: 'badge-err', publicada: 'badge-ok', archivada: '', recibida: 'badge-info' };
+const CHECK_ICONS = { ok: 'check-circle-2', warn: 'alert-triangle', err: 'alert-circle', info: 'info', pending: 'clock' };
+/* Acción de cada transición: texto del botón, estilo y si pide confirmación */
+const ACTIONS = {
+  aprobada: { label: 'Aprobar', icon: 'check', cls: 'btn-primary' },
+  publicada: { label: 'Publicar', icon: 'send', cls: 'btn-primary', confirm: 'La capa se mostrará en el mapa y el catálogo del geoportal según su clasificación de acceso.' },
+  requiere_correccion: { label: 'Devolver para corrección', icon: 'rotate-ccw', cls: 'btn-secondary', nota: true },
+  archivada: { label: 'Archivar', icon: 'folder-open', cls: 'btn-quiet danger', nota: true },
+  en_revision: { label: 'Reabrir revisión', icon: 'rotate-ccw', cls: 'btn-secondary' }
+};
+const FORMAT_LABEL = { shp: 'Shapefile', zip: 'ZIP', kmz: 'KMZ', geojson: 'GeoJSON', kml: 'KML', gpx: 'GPX', csv: 'CSV', xlsx: 'Excel', gpkg: 'GeoPackage', geotiff: 'GeoTIFF' };
+const fmtLabel = f => FORMAT_LABEL[f] || f || '—';
+const ACCION_TEXTO = {
+  acceso: 'Inició sesión', carga_recibida: 'Carga recibida en cuarentena', carga_en_revision: 'Superó la revisión automática',
+  carga_rechazada: 'No superó la revisión automática', carga_aprobada: 'Aprobada', carga_devuelta: 'Devuelta para corrección',
+  capa_publicada: 'Publicada', capa_retirada: 'Retirada del geoportal', carga_archivada: 'Archivada', carga_reabierta: 'Revisión reabierta'
+};
+
+const filter = ref('en_revision');
+const list = ref([]);
+const totals = ref({});
+const loading = ref(false);
+const selectedId = ref(null);
+const detail = ref(null);
+const geojson = ref(null);
+const nota = ref('');
+const busy = ref(false);
+const isAdmin = computed(() => session.admin?.rol === 'admin');
+
+const errorText = err => (err instanceof ApiError ? err.detalle : 'No se pudo conectar con el servidor.');
+const fmtDateTime = iso => (iso ? new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
+
+async function loadList() {
+  if (!hasApi()) return;
+  loading.value = true;
+  try {
+    const body = await api(`/cargas${filter.value ? `?estado=${filter.value}` : ''}`);
+    list.value = body.cargas;
+    totals.value = body.totales;
+    if (!list.value.some(c => c.id === selectedId.value)) select(list.value[0]?.id || null);
+  } catch (err) { showToast('error', 'No se cargó la lista', errorText(err)); }
+  finally { loading.value = false; }
+}
+
+async function select(id) {
+  selectedId.value = id;
+  detail.value = null; geojson.value = null; nota.value = '';
+  if (!id) return;
+  try {
+    const d = await api(`/cargas/${id}`);
+    if (selectedId.value !== id) return;
+    detail.value = d;
+    if (d.tieneGeometria) {
+      const gj = await api(`/cargas/${id}/geojson`);
+      if (selectedId.value === id) geojson.value = Object.freeze(gj);
+    }
+  } catch (err) { showToast('error', 'No se cargó la carga', errorText(err)); }
+}
+
+async function transition(estado) {
+  const a = ACTIONS[estado];
+  const d = detail.value;
+  if (!d || busy.value) return;
+  if (a.nota && !nota.value.trim()) { showToast('info', 'Escribe el motivo', `Para «${a.label.toLowerCase()}» hace falta una nota que verá quien la envió.`); document.getElementById('reviewNote')?.focus(); return; }
+  if (a.confirm && !(await confirmAction({ title: `${a.label} «${d.titulo}»`, text: a.confirm, ok: a.label }))) return;
+  busy.value = true;
+  try {
+    detail.value = await api(`/cargas/${d.id}/estado`, { method: 'POST', json: { estado, nota: nota.value.trim() } });
+    nota.value = '';
+    showToast('success', `${detail.value.estadoTexto}`, `«${d.titulo}».`);
+    if (estado === 'publicada' || d.estado === 'publicada') loadPublished();
+    /* La lista pasa al nuevo estado para que la carga siga a la vista */
+    if (filter.value && filter.value !== estado) filter.value = estado; else await loadList();
+  } catch (err) { showToast('error', 'No se cambió el estado', errorText(err)); }
+  finally { busy.value = false; }
+}
+
+const studyRows = computed(() => {
+  const s = detail.value?.estudio || {};
+  return ['sTitle', 'sTheme', 'sDate', 'sResp', 'sSource', 'sLic', 'sAccess', 'sKeywords'].map(k => [FIELD_LABELS[k], s[k]]);
+});
+const dataRows = computed(() => {
+  const d = detail.value;
+  if (!d) return [];
+  return [
+    ['Capa', d.capa], ['Formato', fmtLabel(d.formato)], ['Entidades', d.entidades ? d.entidades.toLocaleString('es-MX') : ''], ['Sistema de referencia', d.crs, true],
+    ['Extensión (S, N, O, E)', d.bbox ? d.bbox.join(', ') : '', true], ['Enviada por', d.autor], ['Recibida', fmtDateTime(d.creada)],
+    ['Revisada por', d.revisor], ['Publicada', d.publicada ? fmtDateTime(d.publicada) : '']
+  ];
+});
+const fmtSize = n => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+watch(filter, loadList);
+onMounted(loadList);
+</script>
+
+<template>
+  <section class="screen active" aria-labelledby="revTitle">
+    <div class="page">
+      <div class="page-inner page-wide">
+        <div class="page-head">
+          <div>
+            <h1 id="revTitle">Revisión de cargas</h1>
+            <p>Las capas enviadas desde Carga llegan al servidor en cuarentena y pasan una segunda revisión automática. Aquí se aprueban, se devuelven para corrección y se publican; cada paso queda en la bitácora.</p>
+          </div>
+        </div>
+
+        <div v-if="!hasApi()" class="callout info"><Icon name="cloud-off" /><span>Esta versión no tiene servidor de publicación configurado.</span></div>
+        <template v-else>
+          <div class="seg review-filters" role="radiogroup" aria-label="Filtrar por estado">
+            <label v-for="[k, t] in FILTERS" :key="k">
+              <input v-model="filter" type="radio" name="revFilter" :value="k">{{ t }}
+              <span v-if="k" class="count">{{ totals[k] || 0 }}</span>
+            </label>
+          </div>
+
+          <div class="review-grid">
+            <section class="panel review-list" aria-labelledby="revListTitle">
+              <div class="panel-head"><h2 id="revListTitle">Cargas</h2><Icon v-if="loading" name="loader-2" class="ic-14 ic-spin" /></div>
+              <ul v-if="list.length" role="listbox" aria-labelledby="revListTitle">
+                <li v-for="c in list" :key="c.id" role="option" :aria-selected="String(c.id === selectedId)" tabindex="0"
+                  @click="select(c.id)" @keydown.enter.prevent="select(c.id)" @keydown.space.prevent="select(c.id)">
+                  <span class="rl-title">{{ c.titulo }}</span>
+                  <span class="rl-meta">{{ fmtLabel(c.formato) }} · {{ c.entidades ? `${c.entidades.toLocaleString('es-MX')} ent.` : 'sin geometría' }} · {{ c.autor || '—' }}</span>
+                  <span class="rl-foot"><span class="badge" :class="BADGE[c.estado]">{{ c.estadoTexto }}</span><span class="rl-date">{{ fmtDateTime(c.actualizada) }}</span></span>
+                </li>
+              </ul>
+              <p v-else-if="!loading" class="review-empty">No hay cargas {{ filter ? `en «${FILTERS.find(f => f[0] === filter)[1].toLowerCase()}»` : 'todavía' }}.</p>
+            </section>
+
+            <section v-if="detail" class="review-detail" aria-labelledby="revDetailTitle">
+              <div class="panel">
+                <div class="panel-head">
+                  <div>
+                    <h2 id="revDetailTitle">{{ detail.titulo }}</h2>
+                    <p>{{ detail.tema }} · Acceso {{ detail.acceso || '—' }}</p>
+                  </div>
+                  <span class="badge" :class="BADGE[detail.estado]">{{ detail.estadoTexto }}</span>
+                </div>
+                <div class="panel-body">
+                  <div v-if="detail.nota" class="callout" :class="detail.estado === 'requiere_correccion' ? 'warn' : 'info'"><Icon name="info" /><span><b>Nota de revisión.</b> {{ detail.nota }}</span></div>
+                  <PreviewMap v-if="geojson" class="review-map" :geojson="geojson" />
+                  <div class="review-cols">
+                    <div><h3 class="dsec">Estudio</h3><KeyValues :rows="studyRows" /><p v-if="detail.estudio.sDesc" class="review-desc">{{ detail.estudio.sDesc }}</p></div>
+                    <div><h3 class="dsec">Datos</h3><KeyValues :rows="dataRows" /></div>
+                  </div>
+                  <h3 class="dsec">Revisión del servidor</h3>
+                  <ul class="check-list">
+                    <li v-for="(c, i) in detail.revision" :key="i" :data-s="c[0]"><Icon :name="CHECK_ICONS[c[0]] || 'info'" /><div>{{ c[1] }}<span v-if="c[2]">{{ c[2] }}</span></div></li>
+                  </ul>
+                  <h3 class="dsec">Archivos en cuarentena</h3>
+                  <ul class="review-files">
+                    <li v-for="a in detail.archivos" :key="a.nombre"><Icon name="file" class="ic-14" /><span class="mono">{{ a.nombre }}</span><span>{{ fmtSize(a.tam) }}</span></li>
+                  </ul>
+                  <h3 class="dsec">Historial</h3>
+                  <ol class="review-history">
+                    <li v-for="(h, i) in detail.historial" :key="i">
+                      <b>{{ ACCION_TEXTO[h.accion] || h.accion }}</b>
+                      <span>{{ fmtDateTime(h.fecha) }}{{ h.usuario ? ` · ${h.usuario}` : '' }}{{ h.detalle?.nota ? ` · «${h.detalle.nota}»` : '' }}</span>
+                    </li>
+                  </ol>
+                </div>
+                <div v-if="isAdmin && detail.transiciones.length" class="panel-foot review-actions">
+                  <div class="field review-note">
+                    <label for="reviewNote">Nota (obligatoria para devolver o archivar)</label>
+                    <textarea id="reviewNote" v-model="nota" class="textarea" maxlength="2000" rows="2" placeholder="Por ejemplo: falta la fuente original del levantamiento"></textarea>
+                  </div>
+                  <div class="review-buttons">
+                    <button v-for="t in detail.transiciones" :key="t" type="button" class="btn btn-sm" :class="ACTIONS[t].cls" :disabled="busy" @click="transition(t)">
+                      <Icon :name="ACTIONS[t].icon" />{{ ACTIONS[t].label }}
+                    </button>
+                  </div>
+                </div>
+                <div v-else-if="!isAdmin" class="panel-foot"><span class="review-empty">Solo una persona administradora puede aprobar o publicar.</span></div>
+              </div>
+            </section>
+            <div v-else-if="list.length" class="review-detail review-empty">Elige una carga para revisarla.</div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </section>
+</template>

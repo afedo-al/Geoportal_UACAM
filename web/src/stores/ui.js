@@ -7,13 +7,13 @@ const mq = window.matchMedia('(max-width: 680px)');
 export const ui = reactive({
   mobile: mq.matches,
   docks: { left: true, right: true },
+  sheet: { left: 'half', right: 'half' },   // altura de las hojas inferiores en el celular
   toasts: [],
   tasks: [],
   confirm: null, // { title, text, ok, resolve }
   menu: { open: false, anchor: null, items: [], align: 'left', header: null, onSelect: null, returnFocus: true },
   loginOpen: false,
-  metaId: null,
-  studyOpen: false
+  metaId: null
 });
 
 export const isMobile = () => mq.matches;
@@ -40,8 +40,8 @@ export function startTask(label) {
 }
 
 /* ---------------- confirmación ---------------- */
-export function confirmAction({ title, text, ok = 'Confirmar' }) {
-  return new Promise(resolve => { ui.confirm = { title, text, ok, resolve }; });
+export function confirmAction({ title, text, ok = 'Confirmar', danger = false }) {
+  return new Promise(resolve => { ui.confirm = { title, text, ok, danger, resolve }; });
 }
 
 /* ---------------- menús contextuales ---------------- */
@@ -58,7 +58,10 @@ export function closeMenu(returnFocus = true) {
 export function dockOpen(side) { return ui.docks[side]; }
 
 export function setDock(side, open, { persist = true } = {}) {
-  if (open && ui.mobile) ui.docks[side === 'left' ? 'right' : 'left'] = false;
+  if (open && ui.mobile) {
+    ui.docks[side === 'left' ? 'right' : 'left'] = false;
+    if (!ui.docks[side]) ui.sheet[side] = 'half';
+  }
   ui.docks[side] = open;
   if (persist && !ui.mobile) store.set(`dock-${side}`, open);
 }

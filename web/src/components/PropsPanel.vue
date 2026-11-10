@@ -2,22 +2,22 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import Icon from './Icon.vue';
 import KeyValues from './KeyValues.vue';
-import { ui, setDock, isMobile } from '../stores/ui.js';
+import { ui, setDock } from '../stores/ui.js';
 import { layers, entryById, showLayerInfo, zoomToLayer, exportMeta, copyCitation } from '../stores/layers.js';
 import { fmtDate } from '../lib/format.js';
-import { moveInk, tabKeys, sheetSwipe } from '../lib/ui-helpers.js';
+import { moveInk, tabKeys, useSheet } from '../lib/ui-helpers.js';
 
 const dock = ref(null);
 const tabsEl = ref(null);
 const entering = ref(null);
-const swipe = sheetSwipe(() => dock.value, isMobile, () => setDock('right', false));
+const sheet = useSheet('right', () => dock.value);
 const TABS = [['info', 'Información'], ['attrs', 'Atributos'], ['meta', 'Metadatos']];
 
 const e = computed(() => entryById(layers.selected));
 const m = computed(() => e.value?.metaRecord);
 const f = computed(() => layers.feature?.layer === layers.selected ? layers.feature : null);
 const access = computed(() => m.value?.access || (m.value?.estatus === 'Completo' ? 'Pública' : 'Interna'));
-const statusClass = computed(() => m.value?.estatus === 'Completo' ? 'badge-ok' : 'badge-warn');
+const statusClass = computed(() => ['Completo', 'Publicada'].includes(m.value?.estatus) ? 'badge-ok' : 'badge-warn');
 
 function setTab(t) { layers.tab = t; }
 watch(() => layers.tab, t => {
@@ -37,9 +37,13 @@ function close() {
 </script>
 
 <template>
-  <aside id="propsDock" ref="dock" class="dock dock-right" :inert="!ui.docks.right" aria-labelledby="propsTitle">
-    <div class="dock-head" v-on="swipe">
+  <section id="propsDock" ref="dock" class="dock dock-right" :inert="!ui.docks.right && !sheet.moving.value" aria-labelledby="propsTitle">
+    <div class="dock-head" v-on="sheet.handlers">
+      <span class="sheet-grip" aria-hidden="true"></span>
       <h2 id="propsTitle"><Icon name="info" />Propiedades</h2>
+      <button type="button" class="icon-btn sheet-size" :aria-label="sheet.expanded.value ? 'Reducir el panel' : 'Expandir el panel'" :aria-expanded="String(sheet.expanded.value)" @click="sheet.toggleSize()">
+        <Icon name="chevron-down" :class="{ 'is-up': !sheet.expanded.value }" />
+      </button>
       <button type="button" class="icon-btn" data-tip="Ocultar propiedades" aria-label="Ocultar panel de propiedades" @click="close">
         <Icon name="panel-right" class="ic-desk" /><Icon name="x" class="ic-sheet" />
       </button>
@@ -61,7 +65,7 @@ function close() {
           <h3 class="prop-title">{{ e.name }}</h3>
           <div class="prop-sub">
             <span v-if="e.kind === 'session'" class="badge badge-info">Sesión · no publicada</span>
-            <span v-if="e.kind === 'dataset'" class="badge badge-info">Datos de prueba</span>
+            <span v-if="e.kind === 'dataset' && !e.remote" class="badge badge-info">Datos de prueba</span>
             <span v-if="m" class="badge" :class="statusClass">{{ m.estatus }}</span>
           </div>
           <p class="prop-desc">{{ m?.resumen }}</p>
@@ -113,7 +117,7 @@ function close() {
             <div class="section-label">Identificación</div>
             <KeyValues :rows="[['Tema', m.temas], ['Publicación', fmtDate(m.pub)], ['Licencia', m.lic], ['Acceso', access]]" />
             <div class="section-label">Cobertura</div>
-            <KeyValues :rows="[['Norte', `${m.bbox[1].toFixed(2)}°`, true], ['Sur', `${m.bbox[0].toFixed(2)}°`, true], ['Oeste', `${m.bbox[2].toFixed(2)}°`, true], ['Este', `${m.bbox[3].toFixed(2)}°`, true], ['Resolución', m.res]]" />
+            <KeyValues :rows="m.bbox ? [['Norte', `${m.bbox[1].toFixed(2)}°`, true], ['Sur', `${m.bbox[0].toFixed(2)}°`, true], ['Oeste', `${m.bbox[2].toFixed(2)}°`, true], ['Este', `${m.bbox[3].toFixed(2)}°`, true], ['Resolución', m.res]] : [['Extensión', 'Todavía no calculada'], ['Resolución', m.res]]" />
             <div class="section-label">Linaje</div>
             <p class="prop-desc flush-top">{{ m.linaje }}</p>
             <div class="prop-actions">
@@ -124,5 +128,5 @@ function close() {
         </div>
       </template>
     </div>
-  </aside>
+  </section>
 </template>

@@ -45,7 +45,7 @@ export const mapState = reactive({
 });
 
 /* Otros módulos registran aquí lo que ocurre al interactuar con el mapa */
-export const mapHooks = { featureClick: null, featureTip: null, mapClick: null };
+export const mapHooks = { featureClick: null, featureTip: null };
 
 let map = null;
 let baseLayer = null;
@@ -80,7 +80,7 @@ function rgba(hex, a) {
 
 /* Convierte {color, weight, opacity, fillColor, fillOpacity} (el formato del prototipo) en un estilo de OpenLayers.
    El relleno nunca es totalmente transparente: así la entidad se puede identificar con un clic en su interior. */
-export function vectorStyle(o, pointColor = '#24528f') {
+export function vectorStyle(o, pointColor = '#214c7e') {
   const key = [o.color, o.weight, o.opacity ?? 1, o.fillColor, o.fillOpacity, pointColor].join('|');
   let s = styleCache.get(key);
   if (!s) {
@@ -101,16 +101,16 @@ export function createVectorLayer({ id, zIndex, style, visible = true }) {
 }
 
 const highlightStyle = feature => feature.getGeometry()?.getType() === 'Point'
-  ? new Style({ image: new CircleStyle({ radius: 8, fill: new Fill({ color: '#c8a13a' }), stroke: new Stroke({ color: '#ffffff', width: 2 }) }) })
-  : new Style({ stroke: new Stroke({ color: '#c8a13a', width: 2.5 }) });
+  ? new Style({ image: new CircleStyle({ radius: 8, fill: new Fill({ color: '#d4a64c' }), stroke: new Stroke({ color: '#ffffff', width: 2 }) }) })
+  : new Style({ stroke: new Stroke({ color: '#d4a64c', width: 2.5 }) });
 
 const measureStyle = feature => feature.get('vertex')
-  ? new Style({ image: new CircleStyle({ radius: 3.5, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#0b1f3a', width: 1.5 }) }) })
-  : new Style({ stroke: new Stroke({ color: '#0b1f3a', width: 2.5, lineDash: [6, 5] }), fill: new Fill({ color: 'rgba(200,161,58,0.18)' }) });
+  ? new Style({ image: new CircleStyle({ radius: 3.5, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#0c1e35', width: 1.5 }) }) })
+  : new Style({ stroke: new Stroke({ color: '#0c1e35', width: 2.5, lineDash: [6, 5] }), fill: new Fill({ color: 'rgba(212,166,76,0.18)' }) });
 
-const gpsStyle = new Style({ image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#c8a13a' }), stroke: new Stroke({ color: '#ffffff', width: 2 }) }) });
-const markerStyle = new Style({ image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#c8a13a' }), stroke: new Stroke({ color: '#0b1f3a', width: 2 }) }) });
-const locateStyle = new Style({ stroke: new Stroke({ color: '#24528f', width: 1.5 }), fill: new Fill({ color: 'rgba(36,82,143,0.12)' }) });
+const gpsStyle = new Style({ image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#d4a64c' }), stroke: new Stroke({ color: '#ffffff', width: 2 }) }) });
+const markerStyle = new Style({ image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#d4a64c' }), stroke: new Stroke({ color: '#0c1e35', width: 2 }) }) });
+const locateStyle = new Style({ stroke: new Stroke({ color: '#214c7e', width: 1.5 }), fill: new Fill({ color: 'rgba(33,76,126,0.12)' }) });
 
 /* ---------------- utilidades ---------------- */
 export const lonLatToCoord = (lon, lat) => fromLonLat([lon, lat]);
@@ -344,7 +344,6 @@ function onPointerMove(e) {
 function onClick(e) {
   const { lat, lon } = mapCoordToLonLat(e.coordinate);
   if (mapState.measure.type) {
-    mapHooks.mapClick?.(lat, lon);
     if (mapState.measure.finished) startMeasure(mapState.measure.type);
     measurePts.push(e.coordinate);
     drawMeasure();
@@ -358,7 +357,6 @@ function onClick(e) {
     if (p) { showPopup(fromLonLat([p.lon, p.lat]), gpsPopupContent(p)); return; }
   }
   hidePopup();
-  mapHooks.mapClick?.(lat, lon);
   if (mapState.tool === 'identify') {
     showToast('info', 'Sin entidades en este punto', `${formatCoord(lat, lon, mapState.crs)}. Activa una capa y haz clic sobre un elemento.`);
   }
@@ -388,7 +386,7 @@ export function initMap(target, layers = []) {
   map = new OLMap({
     target,
     layers: [baseLayer, ...layers, hi.layer, lo.layer, me.layer, gp.layer, mk.layer],
-    controls: [new Attribution({ collapsible: false }), new ScaleLine({ units: 'metric', minWidth: 100 })],
+    controls: [new Attribution({ collapsible: false, tipLabel: 'Atribuciones' }), new ScaleLine({ units: 'metric', minWidth: 100 })],
     interactions: defaultInteractions({ doubleClickZoom: true }),
     view: new View({ center: fromLonLat([-90.53, 19.83]), zoom: 9, minZoom: 2, maxZoom: 19 })
   });

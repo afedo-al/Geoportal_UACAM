@@ -1,5 +1,5 @@
 <script setup>
-import { watch, onMounted, onBeforeUnmount } from 'vue';
+import { watch, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import TopBar from './components/TopBar.vue';
 import ToastHost from './components/ToastHost.vue';
@@ -10,13 +10,20 @@ import ConfirmDialog from './components/ConfirmDialog.vue';
 import MetaDialog from './components/MetaDialog.vue';
 import { ui, closeMenu, setDock } from './stores/ui.js';
 import { session } from './stores/session.js';
+import { studies, closeStudyEditor } from './stores/studies.js';
 import { mapState, setTool } from './stores/map.js';
+
+/* El editor de estudios se descarga solo cuando un administrador lo abre */
+const StudyDialog = defineAsyncComponent(() => import('./components/StudyDialog.vue'));
 
 const route = useRoute();
 const router = useRouter();
 
 /* Al cerrar la sesión, las secciones de administración dejan de estar disponibles */
-watch(() => session.admin, admin => { if (!admin && route.meta.admin) router.replace('/'); });
+watch(() => session.admin, admin => {
+  if (!admin) closeStudyEditor();
+  if (!admin && route.meta.admin) router.replace('/');
+});
 
 function onKey(e) {
   const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
@@ -43,13 +50,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey));
           <component :is="Component" />
         </KeepAlive>
       </RouterView>
+      <PopoverMenu />
     </main>
   </div>
 
   <LoginDialog />
   <MetaDialog />
+  <StudyDialog v-if="studies.editing && session.admin" />
   <ConfirmDialog />
-  <PopoverMenu />
   <TooltipHost />
   <ToastHost />
 </template>

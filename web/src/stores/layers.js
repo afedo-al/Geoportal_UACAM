@@ -5,7 +5,10 @@ import { transformExtent } from 'ol/proj.js';
 import { DATASETS, CONTACTO_CEDESU } from '../lib/datasets.js';
 import { store, downloadBlob } from '../lib/format.js';
 import { mapHooks, createVectorLayer, vectorStyle, addLayer, removeLayer, flyToExtent, bboxToExtent } from './map.js';
-import { ui, showToast, startTask, setDock } from './ui.js';
+import { ui, showToast, startTask, setDock, confirmAction } from './ui.js';
+import { session, onSessionStart, onSessionEnd } from './session.js';
+import { api, apiHref, hasApi } from '../lib/api.js';
+import { onStudyChange, onStudyDeleted, metaFromStudy, studyEntry } from './studies.js';
 import { router } from '../router.js';
 
 export const layers = reactive({
@@ -21,7 +24,8 @@ const featureIndex = new WeakMap();   // entidad de OpenLayers → posición en 
 const featuresOf = new Map();         // id de capa → entidades de OpenLayers, en el orden del GeoJSON
 const pending = new Map();            // id de capa → promesa de descarga
 
-export const entryById = id => layers.entries.find(e => e.id === id);
+/* Los estudios del lote que aún no son capa del mapa («lote:c1») se resuelven con el mismo formato de ficha */
+export const entryById = id => layers.entries.find(e => e.id === id) || studyEntry(id);
 export const metaOf = id => entryById(id)?.metaRecord;
 
 /* ---------------- registro de los datos de prueba ---------------- */
@@ -30,16 +34,168 @@ export function registerDatasets() {
   DATASETS.forEach(def => {
     layers.entries.push({
       id: def.id, kind: 'dataset', group: 'pruebas', name: def.name, visible: def.visible, loading: false, error: null,
-      sym: def.sym, def: markRaw(def), metaRecord: { ...def.meta }, geojson: null, count: 0,
+      sym: def.sym, def: markRaw(def), metaRecord: { ...def.meta }, geojson: null, count: 0, edited: false, hidden: false,
       olLayer: markRaw(createVectorLayer({ id: def.id, zIndex: def.zIndex, visible: def.visible, style: f => vectorStyle(def.style(f.getProperties())) }))
     });
   });
+  /* Cambios que un administrador hizo antes en este navegador */
+  const edits = store.get(EDITS_KEY, {});
+  const hidden = store.get(HIDDEN_KEY, []);
+  layers.entries.filter(e => e.kind === 'dataset').forEach(e => {
+    if (edits && typeof edits === 'object' && edits[e.id] && typeof edits[e.id] === 'object') applyEdit(e, edits[e.id]);
+    if (Array.isArray(hidden) && hidden.includes(e.id)) hideEntry(e);
+  });
 }
 
-export const studyList = () => DATASETS.map(d => ({
-  id: d.id, title: d.name, theme: d.meta.temas.split(' · ')[0], date: (d.meta.pub || '').slice(0, 7),
-  desc: d.meta.resumen, facts: [d.meta.formato, d.meta.res].filter(Boolean)
-}));
+/* ---------------- capas publicadas por el servicio de publicación ----------------
+   Las aprobadas y publicadas en la pantalla Revisión. Las de acceso «Interna» solo llegan con sesión,
+   así que la lista se vuelve a pedir al iniciar o cerrar sesión. */
+const PUB_COLORS = ['#1f6f8b', '#b5523b', '#5a7d2a', '#7a4f9a', '#a8741a', '#2f5d9b'];
+let pubSeq = 0;
+
+const PUB_FORMATS = { shp: 'Shapefile', zip: 'Shapefile en ZIP', kmz: 'KMZ', geojson: 'GeoJSON', kml: 'KML', gpx: 'GPX', csv: 'CSV', xlsx: 'Excel' };
+
+function publishedMeta(c) {
+  const s = c.estudio || {};
+  return {
+    id: `CEDESU-${c.id.slice(0, 8).toUpperCase()}`, cat: 'Capa publicada', estatus: 'Publicada', tipo: 'Vector',
+    temas: s.sTheme || '—', resumen: s.sDesc || 'Sin descripción.', pub: s.sDate || '', act: (c.actualizada || '').slice(0, 10),
+    escala: '—', res: '—', crs: c.crs || '—', bbox: c.bbox, formato: PUB_FORMATS[c.formato] || c.formato || '—', tam: '—', lic: s.sLic || '—',
+    palabras: String(s.sKeywords || '').split(',').map(x => x.trim()).filter(Boolean),
+    resp: s.sResp || '—', fuente: s.sSource || s.sResp || '—', linaje: s.sLineage || '—',
+    access: `${s.sAccess || 'Sin clasificar'} · publicada el ${(c.publicada || '').slice(0, 10)}`, attrs: []
+  };
+}
+
+function publishedEntry(c) {
+  const color = PUB_COLORS[pubSeq++ % PUB_COLORS.length];
+  const def = {
+    id: `pub:${c.id}`, remote: true, name: c.nombre, url: apiHref(`capas/${c.id}.geojson`), visible: false, zIndex: 420 + pubSeq,
+    sym: { t: 'poly', c: color, f: `${color}33` }, label: null,
+    style: () => ({ color, weight: 1.4, opacity: 0.95, fillColor: color, fillOpacity: 0.22 }),
+    tip: p => { const k = Object.keys(p).find(x => x !== 'geometry' && /nom|name|municipio|clave|tipo|id/i.test(x)) || Object.keys(p).find(x => x !== 'geometry'); return k ? `${k}: ${p[k]}` : c.nombre; },
+    meta: publishedMeta(c)
+  };
+  return {
+    id: def.id, kind: 'dataset', remote: true, group: 'publicadas', name: def.name, visible: false, loading: false, error: null,
+    sym: def.sym, def: markRaw(def), metaRecord: { ...def.meta }, geojson: null, count: c.entidades || 0, edited: false, hidden: false,
+    olLayer: markRaw(createVectorLayer({ id: def.id, zIndex: def.zIndex, visible: false, style: f => vectorStyle(def.style(f.getProperties()), color) }))
+  };
+}
+
+/* Las peticiones se encadenan: iniciar sesión mientras se pide la lista no duplica capas */
+let pubQueue = Promise.resolve();
+export const loadPublished = () => (pubQueue = pubQueue.then(syncPublished, syncPublished));
+
+async function syncPublished() {
+  if (!hasApi()) return;
+  let list;
+  try { list = (await api('/capas', { quiet401: true })).capas || []; }
+  catch { return; }   // sin servidor: el mapa sigue con los datos de prueba
+  const keep = new Set(list.map(c => `pub:${c.id}`));
+  layers.entries.filter(e => e.remote && !keep.has(e.id)).forEach(e => {
+    removeLayer(e.olLayer);
+    featuresOf.delete(e.id);
+    if (layers.selected === e.id) { layers.selected = null; layers.feature = null; }
+    layers.entries.splice(layers.entries.indexOf(e), 1);
+  });
+  list.forEach(c => {
+    if (layers.entries.some(e => e.id === `pub:${c.id}`)) return;
+    const e = publishedEntry(c);
+    layers.entries.push(e);
+    addLayer(e.olLayer);   // si el mapa aún no existe, initMap la añade con las demás
+  });
+}
+onSessionStart(() => loadPublished());
+onSessionEnd(() => loadPublished());
+
+/* ---------------- fichas de los conjuntos de prueba: edición local (solo administración) ----------------
+   No hay servidor de publicación: lo editado se guarda en este navegador y nunca cambia el archivo de datos.
+   Ocultar un conjunto lo quita del catálogo, del mapa y del buscador; se puede restaurar. */
+const EDITS_KEY = 'cedesuDatasetEdits';
+const HIDDEN_KEY = 'cedesuHiddenDatasets';
+const META_OF_FIELD = [['sTheme', 'temas'], ['sDate', 'pub'], ['sResp', 'resp'], ['sSource', 'fuente'], ['sLic', 'lic'], ['sAccess', 'access'], ['sDesc', 'resumen'], ['sLineage', 'linaje']];
+const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069]/g, ' ').trim().slice(0, n);
+
+function applyEdit(e, edit) {
+  const title = clip(edit.sTitle, 200);
+  if (title) e.name = title;
+  META_OF_FIELD.forEach(([f, m]) => { if (typeof edit[f] === 'string') e.metaRecord[m] = clip(edit[f], 2000); });
+  if (typeof edit.sDate === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(e.metaRecord.pub)) e.metaRecord.pub = '';
+  if (typeof edit.sKeywords === 'string') e.metaRecord.palabras = edit.sKeywords.split(',').map(s => clip(s, 80)).filter(Boolean);
+  e.edited = true;
+}
+function hideEntry(e) {
+  e.hidden = true;
+  e.visible = false;
+  e.olLayer.setVisible(false);
+  if (layers.selected === e.id) { layers.selected = null; layers.feature = null; }
+}
+const persistHidden = () => store.set(HIDDEN_KEY, layers.entries.filter(e => e.hidden).map(e => e.id));
+
+/* Valores de la ficha en el formato del formulario de estudio */
+export function datasetForm(id) {
+  const e = entryById(id);
+  if (!e || e.kind !== 'dataset') return null;
+  const m = e.metaRecord;
+  return {
+    sTitle: e.name, sTheme: m.temas || '', sDate: /^\d{4}-\d{2}-\d{2}$/.test(m.pub || '') ? m.pub : '', sResp: m.resp || '', sSource: m.fuente || '',
+    sLic: m.lic || '', sAccess: m.access || '', sDesc: m.resumen || '', sLineage: m.linaje || '', sKeywords: (m.palabras || []).join(', ')
+  };
+}
+
+export function saveDatasetMeta(id, values) {
+  const e = entryById(id);
+  if (!session.admin || !e || e.kind !== 'dataset' || e.remote) return false;
+  const edit = Object.fromEntries(['sTitle', ...META_OF_FIELD.map(x => x[0]), 'sKeywords'].map(k => [k, clip(values[k], k === 'sTitle' ? 200 : 2000)]));
+  applyEdit(e, edit);
+  const all = store.get(EDITS_KEY, {});
+  store.set(EDITS_KEY, { ...(all && typeof all === 'object' ? all : {}), [id]: edit });
+  return true;
+}
+
+export function resetDatasetMeta(id) {
+  const e = entryById(id);
+  if (!session.admin || !e?.def) return;
+  e.name = e.def.name;
+  e.metaRecord = { ...e.def.meta, attrs: e.metaRecord.attrs };
+  e.edited = false;
+  const all = store.get(EDITS_KEY, {});
+  if (all && typeof all === 'object') { delete all[id]; store.set(EDITS_KEY, all); }
+}
+
+export async function hideDataset(id) {
+  const e = entryById(id);
+  if (!session.admin || !e || e.kind !== 'dataset' || e.remote) return false;
+  const ok = await confirmAction({
+    title: `Eliminar «${e.name}» del catálogo`,
+    text: 'Se quitará del catálogo, del mapa y del buscador en este navegador. Es un conjunto de prueba: el archivo de datos no se borra y puedes restaurarlo desde el catálogo.',
+    ok: 'Eliminar del catálogo', danger: true
+  });
+  if (!ok) return false;
+  hideEntry(e);
+  persistHidden();
+  showToast('info', 'Conjunto eliminado del catálogo', `«${e.name}». Puedes restaurarlo desde el catálogo.`);
+  return true;
+}
+
+export function restoreDatasets() {
+  if (!session.admin) return;
+  const back = layers.entries.filter(e => e.hidden);
+  back.forEach(e => { e.hidden = false; toggleLayer(e.id, !!e.def?.visible); });
+  persistHidden();
+  if (back.length) showToast('success', back.length === 1 ? 'Conjunto restaurado' : `${back.length} conjuntos restaurados`, back.map(e => e.name).join(', '));
+}
+
+/* Estudios de los conjuntos de prueba, con lo que haya editado un administrador en este navegador */
+/* Los estudios publicados van primero; después, los conjuntos de prueba */
+export const studyList = () => layers.entries.filter(e => e.kind === 'dataset' && !e.hidden).sort((a, b) => !!b.remote - !!a.remote).map(e => {
+  const m = e.metaRecord;
+  return {
+    id: e.id, title: e.name, theme: (m.temas || 'Sin tema').split(' · ')[0], date: (m.pub || '').slice(0, 7), desc: m.resumen, edited: e.edited, published: !!e.remote,
+    facts: e.remote ? [m.formato, e.count ? `${e.count.toLocaleString('es-MX')} entidades` : '', m.lic].filter(x => x && x !== '—') : [m.formato, m.res].filter(Boolean)
+  };
+});
 
 function fillSource(id, layer, geojson) {
   const feats = new GeoJSON().readFeatures(geojson, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' });
@@ -79,7 +235,7 @@ export function loadDataset(id) {
   pending.set(id, p);
   return p;
 }
-export const loadVisibleDatasets = () => layers.entries.filter(e => e.kind === 'dataset' && e.visible).forEach(e => loadDataset(e.id));
+export const loadVisibleDatasets = () => layers.entries.filter(e => e.kind === 'dataset' && e.visible && !e.hidden).forEach(e => loadDataset(e.id));
 
 /* ---------------- visibilidad, orden y selección ---------------- */
 export function toggleLayer(id, visible) {
@@ -155,6 +311,11 @@ export async function zoomToLayer(id) {
 }
 
 export function viewStudyOnMap(id) {
+  if (typeof id === 'string' && id.startsWith('lote:')) {
+    const shown = layers.entries.find(x => x.studyId === id.slice(5));
+    if (!shown) { showToast('info', 'Esta capa aún no está en el mapa', 'Ábrela en Carga de datos y pulsa «Ver en el mapa».'); return; }
+    id = shown.id;
+  }
   router.push('/');
   const e = entryById(id);
   if (e && !e.visible) toggleLayer(id, true);
@@ -165,15 +326,15 @@ export function viewStudyOnMap(id) {
 
 export function showLayerInfo(id) {
   if (!entryById(id)) return;
-  selectLayer(id);
+  if (!String(id).startsWith('lote:')) selectLayer(id);
   ui.metaId = id;
 }
 
 /* ---------------- capas de sesión (vista previa local, no publicada) ---------------- */
 let sessionCounter = 0;
-const PALETTE = ['#c8a13a', '#24528f', '#b04a2f', '#2d6a4f', '#6b4fa0'];
+const PALETTE = ['#d4a64c', '#214c7e', '#b04a2f', '#2d6a4f', '#6b4fa0'];
 
-export function addSessionLayer(name, geojson, metaRecord) {
+export function addSessionLayer(name, geojson, metaRecord, studyId = null) {
   const id = `sesion-${++sessionCounter}`;
   const color = PALETTE[(sessionCounter - 1) % PALETTE.length];
   const types = new Set(geojson.features.map(f => f.geometry?.type));
@@ -186,7 +347,7 @@ export function addSessionLayer(name, geojson, metaRecord) {
   metaRecord.bbox = [ext[1], ext[3], ext[0], ext[2]];
   layers.entries.push({
     id, kind: 'session', group: 'sesion', name, visible: true, loading: false, error: null,
-    sym: { t, c: color, f: `${color}38` }, metaRecord, geojson: markRaw(geojson), count: geojson.features.length, olLayer: markRaw(layer)
+    sym: { t, c: color, f: `${color}38` }, metaRecord, studyId, geojson: markRaw(geojson), count: geojson.features.length, olLayer: markRaw(layer)
   });
   const k = layers.collapsed.indexOf('sesion');
   if (k >= 0) layers.collapsed.splice(k, 1);
@@ -194,15 +355,39 @@ export function addSessionLayer(name, geojson, metaRecord) {
   return id;
 }
 
-export function removeSessionLayer(id) {
+/* Si se reemplaza el archivo de una capa que ya está en el mapa, se dibujan los datos nuevos */
+export function refreshSessionData(studyId, geojson) {
+  layers.entries.filter(e => e.studyId === studyId).forEach(e => {
+    const src = e.olLayer.getSource();
+    src.clear();
+    featuresOf.delete(e.id);
+    fillSource(e.id, e.olLayer, geojson);
+    e.geojson = markRaw(geojson);
+    e.count = geojson.features.length;
+    if (src.getFeatures().length) {
+      const ext = transformExtent(src.getExtent(), 'EPSG:3857', 'EPSG:4326');
+      e.metaRecord = { ...e.metaRecord, bbox: [ext[1], ext[3], ext[0], ext[2]] };
+    }
+    if (layers.feature?.layer === e.id) layers.feature = null;
+  });
+}
+
+export function removeSessionLayer(id, { silent = false } = {}) {
   const e = entryById(id);
   if (!e || e.kind !== 'session') return;
   removeLayer(e.olLayer);
   featuresOf.delete(id);
   layers.entries.splice(layers.entries.indexOf(e), 1);
   if (layers.selected === id) { layers.selected = null; layers.feature = null; }
-  showToast('info', 'Capa de sesión quitada', e.name);
+  if (!silent) showToast('info', 'Capa de sesión quitada', e.name);
 }
+
+/* Si se edita el estudio de una capa que ya está en el mapa, su ficha se actualiza (la extensión sale de la geometría) */
+onStudyChange(rec => {
+  layers.entries.filter(e => e.studyId === rec.id).forEach(e => { e.metaRecord = { ...metaFromStudy(rec), bbox: e.metaRecord.bbox }; });
+});
+
+onStudyDeleted(id => layers.entries.filter(e => e.studyId === id).forEach(e => removeSessionLayer(e.id, { silent: true })));
 
 /* ---------------- ficha: exportación y cita ---------------- */
 const xml = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -223,7 +408,7 @@ export function exportMeta(id) {
   <fechaActualizacion>${xml(m.act)}</fechaActualizacion>
   <escala>${xml(m.escala)}</escala>
   <sistemaReferencia>${xml(m.crs)}</sistemaReferencia>
-  <extension sur="${m.bbox[0]}" norte="${m.bbox[1]}" oeste="${m.bbox[2]}" este="${m.bbox[3]}"/>
+  ${m.bbox ? `<extension sur="${m.bbox[0]}" norte="${m.bbox[1]}" oeste="${m.bbox[2]}" este="${m.bbox[3]}"/>` : '<extension calculada="no"/>'}
   <formato>${xml(m.formato)}</formato>
   <licencia>${xml(m.lic)}</licencia>
   <linaje>${xml(m.linaje)}</linaje>

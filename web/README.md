@@ -12,26 +12,32 @@ npm install
 npm run dev        # desarrollo en http://127.0.0.1:5174
 npm run build      # versión de producción en web/dist
 npm run preview    # sirve web/dist en http://127.0.0.1:5175 con las cabeceras de seguridad
+npm run start      # compila y sirve en un solo paso: la versión real para medir el rendimiento (usa el puerto 5175)
+npm test           # pruebas unitarias (node --test, sin dependencias): coordenadas, formato y validadores
 ```
+
+`npm run dev` comprime sus respuestas, pero entrega el código sin minificar y en unos 110 archivos sueltos: sirve para programar, no para medir. Lighthouse en `dev` da ~90 en escritorio y ~65 en móvil; la versión real (`npm run start`) da 100 y ~90.
+
+**Servicio de publicación (pendiente).** El acceso de administración, el envío de cargas, la pantalla Revisión, las capas publicadas y los puntos GPS compartidos necesitan un servidor que todavía no está en este repositorio (RPT-003, sección 8). La interfaz ya habla su API: se conecta compilando con `VITE_API_BASE=/api` y, en desarrollo, definiendo `GEOPORTAL_API` con la dirección del servidor para que Vite le redirija `/api`. Sin servidor, el mapa, el catálogo, la carga y la validación funcionan con los datos de prueba. En `npm run dev` hay una cuenta de demostración que se valida en el navegador (`src/lib/demo-account.js`: usuario `cedesu.admin` o `cedesu@admin.uacam.mx`) para recorrer las pantallas de administración; no protege nada y no se incluye en el build de producción salvo que se compile con `VITE_DEMO_LOCAL=1`. El build de producción no contiene ninguna contraseña.
 
 `web/dist` es un sitio estático: se publica en cualquier servidor web (por ejemplo, nginx con `deploy/nginx-seguridad.conf`). **No funciona con doble clic** sobre `index.html`: los navegadores no cargan módulos JavaScript desde `file://`; usa `npm run dev` o `npm run preview`.
 
-Para conectar el servidor de publicación cuando exista, se define su dirección al compilar:
+Para el build de producción se define la dirección del servicio al compilar:
 
 ```bash
 VITE_API_BASE=/api npm run build
 ```
 
-Sin ella, la pantalla de carga indica que el servidor no está configurado y nada se publica.
+Sin ella, el sitio funciona como consulta estática: no hay acceso de administración y la pantalla de carga indica que el servidor no está configurado.
 
 ## Estructura
 
 | Carpeta | Contenido |
 |---|---|
-| `src/views/` | Pantallas: mapa, catálogo, carga de datos y captura GPS |
+| `src/views/` | Pantallas: mapa, catálogo, carga de datos, captura GPS y revisión de cargas |
 | `src/components/` | Barra superior, buscador, paneles, diálogos, avisos, menús y vista previa |
 | `src/stores/` | Estado compartido: interfaz, sesión, mapa (OpenLayers), capas, carga y GPS |
-| `src/lib/` | Validación de archivos, lectura en el Web Worker, conversión de coordenadas y datos de prueba |
+| `src/lib/` | Cliente de la API (`api.js`), validación de archivos (también la usa el servidor), lectura en el Web Worker, conversión de coordenadas y datos de prueba |
 | `src/styles/main.css` | Sistema de diseño (el mismo del prototipo, con las reglas de OpenLayers) |
 | `public/data/` | Conjuntos de prueba en GeoJSON |
 

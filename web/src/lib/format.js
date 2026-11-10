@@ -31,5 +31,10 @@ export function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-/* Fotografías de puntos: solo https o imágenes PNG, JPEG y WebP en data: */
-export const safePhotoURL = (url = '') => typeof url === 'string' && /^(https:\/\/[^\s"'<>]+|data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+)$/i.test(url) ? url : '';
+/* Fotografía de un punto GPS: https, imagen embebida PNG/JPEG/WebP o la fotografía que sirve el propio
+   servicio de publicación (mismo origen, ruta …/puntos/<id>/foto) */
+const ownPhoto = url => {
+  if (typeof location === 'undefined' || !/^https?:\/\//i.test(url)) return false;
+  try { const u = new URL(url); return u.origin === location.origin && /\/puntos\/[A-Za-z0-9._%-]+\/foto$/.test(u.pathname) && !/["'<>\s]/.test(url); } catch { return false; }
+};
+export const safePhotoURL = (url = '') => typeof url === 'string' && (/^(https:\/\/[^\s"'<>]+|data:image\/(png|jpeg|webp);base64,[a-z0-9+/=]+)$/i.test(url) || ownPhoto(url)) ? url : '';

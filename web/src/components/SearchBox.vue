@@ -3,7 +3,7 @@ import { ref, computed, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import Icon from './Icon.vue';
 import { ui } from '../stores/ui.js';
-import { layers, studyList, showProps, focusFeature, showLayerInfo } from '../stores/layers.js';
+import { layers, studyList, showProps, focusFeature, showLayerInfo, loadVisibleDatasets } from '../stores/layers.js';
 import { flyTo, showSearchMarker } from '../stores/map.js';
 import { PLACES } from '../lib/datasets.js';
 import { parseCoord } from '../lib/geo.js';
@@ -32,9 +32,9 @@ function build(text) {
   if (nq.length < 2) return out;
   PLACES.filter(p => norm(p[0]).includes(nq) || norm(p[1]).includes(nq)).slice(0, 5)
     .forEach(p => out.push({ group: 'Lugares', icon: 'map-pin', t: p[0], s: `Municipio de ${p[1]} · coordenadas aproximadas`, run: () => goTo(p[2], p[3], 12, p[0]) }));
-  layers.entries.filter(l => norm(l.name).includes(nq)).slice(0, 5)
-    .forEach(l => out.push({ group: 'Capas', icon: 'layers', t: l.name, s: l.group === 'pruebas' ? 'Datos de prueba (QGIS)' : 'Capa de sesión', run: () => { router.push('/'); showProps(l.id, 'info'); } }));
-  layers.entries.filter(e => e.geojson && e.def?.label).forEach(e => {
+  layers.entries.filter(l => !l.hidden && norm(l.name).includes(nq)).slice(0, 5)
+    .forEach(l => out.push({ group: 'Capas', icon: 'layers', t: l.name, s: l.group === 'pruebas' ? 'Datos de prueba (QGIS)' : l.remote ? 'Capa publicada' : 'Capa de sesión', run: () => { router.push('/'); showProps(l.id, 'info'); } }));
+  layers.entries.filter(e => !e.hidden && e.geojson && e.def?.label).forEach(e => {
     const label = e.def.label;
     let n = 0;
     e.geojson.features.forEach((f, i) => {
@@ -44,7 +44,7 @@ function build(text) {
     });
   });
   studyList().filter(s => norm(s.title).includes(nq) || norm(s.theme).includes(nq)).slice(0, 4)
-    .forEach(s => out.push({ group: 'Estudios', icon: 'book-open', t: s.title, s: `${s.theme} · datos de prueba`, run: () => showLayerInfo(s.id) }));
+    .forEach(s => out.push({ group: 'Estudios', icon: 'book-open', t: s.title, s: `${s.theme} · ${s.published ? 'publicado' : 'datos de prueba'}`, run: () => showLayerInfo(s.id) }));
   return out;
 }
 
@@ -55,7 +55,7 @@ function render() {
   open.value = !!q.value.trim() && document.activeElement === input.value;
 }
 function onInput() { clearTimeout(deb); deb = setTimeout(render, 60); }
-function onFocus() { if (q.value.trim()) render(); }
+function onFocus() { loadVisibleDatasets(); if (q.value.trim()) render(); }
 function close() { open.value = false; }
 function onBlur() { setTimeout(close, 0); }
 

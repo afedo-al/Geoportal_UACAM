@@ -1,23 +1,48 @@
 <script setup>
-import { ref, reactive, computed, watch, nextTick } from 'vue';
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue';
 import Icon from '../components/Icon.vue';
 import PreviewMap from '../components/PreviewMap.vue';
-import StudyDialog from '../components/StudyDialog.vue';
 import {
-  batch, study, studyComplete, FORMATS, STATES, BUSY, sizeOf, addFiles, selectItem, removeItem, clearWithConfirm,
-  declareCrs, updateMapping, confirmMapping, viewOnMap, openStudy, sendBatch, hasApi
+  batch, FORMATS, STATES, BUSY, sizeOf, addFiles, selectItem, removeItem, clearWithConfirm,
+  declareCrs, updateMapping, confirmMapping, viewOnMap, sendBatch, sendLayer, canSend, hasApi, addMissingFile, editStudy, fileList, removeFile
 } from '../stores/upload.js';
-import { fmtSize } from '../lib/format.js';
+import { studies, studyById, studyComplete, missingFields, deleteStudy, FIELD_LABELS } from '../stores/studies.js';
+import { fmtSize, fmtDate } from '../lib/format.js';
 
 const fileEl = ref(null);
 const listEl = ref(null);
 const pick = () => fileEl.value.click();
 function onFiles(e) { addFiles(e.target.files); e.target.value = ''; }
 
+const missingEl = ref(null);
+const askExt = ref(null);
+/* Añadir a la capa solo el archivo que le falta: se abre el selector limitado a esa extensión */
+function askFile(ext) { askExt.value = ext; nextTick(() => missingEl.value?.click()); }
+function onMissing(e) {
+  const f = e.target.files[0];
+  if (f && it.value && askExt.value) addMissingFile(it.value.id, askExt.value, f);
+  e.target.value = '';
+}
+
 const items = computed(() => batch.items);
 const it = computed(() => batch.items.find(x => x.id === batch.selected) || null);
 const fmt = x => FORMATS[x.format] || { label: 'No admitido', icon: 'file' };
 const plural = (k, a, b) => `${k} ${k === 1 ? a : b}`;
+
+/* Estudio de la capa seleccionada y avance de todos los estudios del lote */
+const rec = computed(() => (it.value ? studyById(it.value.id) : null));
+const files = computed(() => fileList(it.value));
+const recMissing = computed(() => (rec.value ? missingFields(rec.value) : []));
+const recDetails = computed(() => (rec.value ? [rec.value.sTheme, rec.value.sResp, rec.value.sDate && fmtDate(rec.value.sDate)].filter(Boolean).join(' · ') : ''));
+const studyLabel = x => {
+  const r = studyById(x.id);
+  return !r || ['blocked', 'reading', 'checking'].includes(x.state) ? '' : studyComplete(r) ? 'Estudio completo' : 'Estudio incompleto';
+};
+const studyProgress = computed(() => {
+  const list = batch.items.filter(x => !['blocked', 'reading', 'checking'].includes(x.state)).map(x => ({ id: x.id, rec: studyById(x.id) })).filter(x => x.rec);
+  const open = list.filter(x => !studyComplete(x.rec));
+  return { total: list.length, done: list.length - open.length, first: open[0]?.id || null };
+});
 
 const counts = computed(() => {
   const c = {};
@@ -73,6 +98,13 @@ watch(() => batch.items.map(x => `${x.id}:${x.state}`).join('|'), () => {
   primed = true;
 }, { immediate: true });
 
+/* Al llegar desde el catálogo o el mapa con un estudio por editar, se selecciona esa capa */
+onMounted(() => {
+  const target = studies.editing || studies.focus;
+  if (target && batch.items.some(x => x.id === target)) selectItem(target);
+  studies.focus = null;
+});
+
 const entering = ref(false);
 watch(() => batch.selected, () => { entering.value = false; requestAnimationFrame(() => { entering.value = true; }); });
 
@@ -104,18 +136,19 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
           <p>Los archivos se leen y validan en este navegador. Nada se publica hasta que el servidor confirme la recepción y el administrador designado apruebe la publicación.</p>
         </div>
         <div class="ingest-actions">
-          <button type="button" class="study-chip" aria-haspopup="dialog" @click="openStudy">
+          <button v-if="studyProgress.total" type="button" class="study-chip" aria-haspopup="dialog" :disabled="!studyProgress.first" @click="editStudy(studyProgress.first)">
             <Icon name="book-open" />
-            <span><span class="k">Estudio</span><b>{{ study.sTitle || 'Sin definir' }}</b></span>
-            <span class="badge" :class="studyComplete() ? 'badge-ok' : 'badge-warn'">{{ studyComplete() ? 'Completo' : 'Incompleto' }}</span>
+            <span><span class="k">Estudios de las capas</span><b>{{ studyProgress.done }} de {{ studyProgress.total }} completos</b></span>
+            <span class="badge" :class="studyProgress.first ? 'badge-warn' : 'badge-ok'">{{ studyProgress.first ? 'Completar' : 'Listos' }}</span>
           </button>
           <button type="button" class="btn btn-primary" @click="pick"><Icon name="plus" />Agregar archivos</button>
           <input ref="fileEl" type="file" multiple hidden
             accept=".zip,.shp,.shx,.dbf,.prj,.cpg,.qpj,.xml,.gpkg,.geojson,.json,.kml,.kmz,.gpx,.csv,.xlsx,.xls,.tif,.tiff" @change="onFiles">
+          <input ref="missingEl" type="file" hidden :accept="askExt ? `.${askExt}` : undefined" aria-label="Archivo que falta a la capa" @change="onMissing">
         </div>
       </header>
 
-      <ol v-if="items.length" class="pipeline" aria-label="Estado del proceso de carga">
+      <ol v-if="items.length" class="pipeline" tabindex="0" aria-label="Estado del proceso de carga">
         <li v-for="([t, st, sub], i) in steps" :key="t" :data-state="st" :aria-current="st === 'current' ? 'step' : null">
           <span class="pn" aria-hidden="true">
             <Icon v-if="st === 'done'" name="check" class="ic-14" />
@@ -148,7 +181,7 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
 
       <!-- Lote en curso -->
       <div v-else class="ingest-work">
-        <aside class="batch" aria-labelledby="batchTitle">
+        <section class="batch" aria-labelledby="batchTitle">
           <div class="batch-head">
             <h2 id="batchTitle">Lote <span class="count">{{ items.length }}</span></h2>
             <button type="button" class="icon-btn" data-tip="Vaciar el lote" aria-label="Vaciar el lote" @click="clearWithConfirm"><Icon name="x" /></button>
@@ -160,6 +193,7 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
               <span class="bmain">
                 <span class="bname">{{ x.layerName }}</span>
                 <span class="bmeta">{{ fmt(x).label }}{{ x.zipped ? ' en ZIP' : '' }} · {{ fmtSize(sizeOf(x)) }}{{ x.geojson ? ` · ${x.geojson.features.length.toLocaleString('es-MX')} ent.` : '' }}</span>
+                <span v-if="studyLabel(x)" class="bstudy" :data-ok="String(studyLabel(x) === 'Estudio completo')">{{ studyLabel(x) }}</span>
                 <span v-if="x.state === 'reading'" class="progress" role="progressbar" :aria-label="`Lectura de ${x.layerName}`" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(x.progress * 100)">
                   <i :style="{ '--p': x.progress }"></i>
                 </span>
@@ -177,7 +211,7 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
               <Icon name="send" />Enviar a revisión{{ sendable ? ` (${sendable})` : '' }}
             </button>
           </div>
-        </aside>
+        </section>
 
         <div class="item-detail" :class="{ 'is-entering': entering }" aria-live="polite">
           <div v-if="!it" class="empty detail-empty">Selecciona una capa del lote para ver su validación.</div>
@@ -193,8 +227,39 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
               <div class="dactions">
                 <button type="button" class="btn btn-quiet btn-sm" @click="removeItem(it.id)"><Icon name="x" />Quitar</button>
                 <button type="button" class="btn btn-secondary btn-sm" :disabled="!canView" @click="viewOnMap(it.id)"><Icon name="layers" />Ver en el mapa</button>
+                <button type="button" class="btn btn-primary btn-sm" :disabled="!canSend(it) || batch.items.some(x => BUSY.includes(x.state))" @click="sendLayer(it.id)"><Icon name="send" />Enviar esta capa</button>
               </div>
             </header>
+
+            <div v-if="it.missing?.length" class="callout warn missing" role="group" aria-label="Archivos que faltan a esta capa">
+              <Icon name="alert-triangle" />
+              <div>
+                <b>A esta capa le {{ it.missing.length === 1 ? 'falta' : 'faltan' }} {{ it.missing.map(e => `.${e}`).join(' y ') }}.</b>
+                Añade solo {{ it.missing.length === 1 ? 'ese archivo' : 'esos archivos' }}: lo demás de la capa se conserva y las otras capas no cambian. También puedes soltarlo en esta pantalla si se llama igual que la capa.
+                <div class="missing-actions">
+                  <button v-for="ext in it.missing" :key="ext" type="button" class="btn btn-secondary btn-sm" @click="askFile(ext)"><Icon name="file-up" />Añadir el .{{ ext }}</button>
+                </div>
+              </div>
+            </div>
+
+            <section v-if="rec && !['blocked', 'reading'].includes(it.state)" class="study-card" aria-labelledby="stCardTitle">
+              <div class="sc-main">
+                <h3 id="stCardTitle" class="dsec">Estudio de esta capa</h3>
+                <p class="sc-title">{{ rec.sTitle }}</p>
+                <p class="sc-meta">{{ recDetails || 'Sin datos todavía' }}</p>
+                <p class="sc-origin"><template v-if="rec.origins.length">Leído de {{ rec.origins.join(' · ') }}</template><template v-else>El archivo no trae metadatos del estudio.</template></p>
+                <p v-if="recMissing.length" class="sc-missing">Falta: {{ recMissing.map(k => FIELD_LABELS[k].toLowerCase()).join(', ') }}.</p>
+              </div>
+              <div class="sc-side">
+                <span class="badge" :class="recMissing.length ? 'badge-warn' : 'badge-ok'">{{ recMissing.length ? `Faltan ${recMissing.length}` : 'Completo' }}</span>
+                <div class="sc-actions">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="editStudy(it.id)"><Icon name="pencil" />Editar estudio</button>
+                  <button type="button" class="btn btn-quiet btn-sm danger" @click="deleteStudy(it.id)"><Icon name="trash-2" />Eliminar</button>
+                </div>
+                <button v-if="!rec.origins.length" type="button" class="btn btn-quiet btn-sm" @click="askFile('xml')"><Icon name="file-text" />Añadir metadatos (.xml)</button>
+              </div>
+            </section>
+
 
             <div v-if="it.message" class="dmsg">
               <Icon :name="it.message.icon" />
@@ -217,6 +282,7 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
                     <label><input type="radio" name="shpCrs" value="16" @change="declareCrs(it.id, '16')"> UTM 16N</label>
                   </div>
                   <span class="hint">Usa el sistema documentado por la fuente del estudio. El datum se asume WGS 84.</span>
+                  <button type="button" class="btn btn-quiet btn-sm align-start" @click="askFile('prj')"><Icon name="file-up" />O añade el .prj de la capa</button>
                 </div>
 
                 <div v-if="it.table && it.mapping" class="dcard stack mapping">
@@ -246,6 +312,16 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
                     <template v-if="it.issues.length > 6">…y {{ it.issues.length - 6 }} más.</template>
                   </div>
                 </div>
+                <section class="files-card" aria-labelledby="filesTitle">
+                  <h3 id="filesTitle" class="dsec">Archivos de esta capa <span class="count">{{ files.length }}</span></h3>
+                  <ul class="file-list">
+                    <li v-for="f in files" :key="f.slot">
+                      <Icon name="file" class="ic-14" />
+                      <span class="fmain"><span class="fname">{{ f.name }}</span><span class="frole">{{ f.role }} · {{ fmtSize(f.size) }}</span></span>
+                      <button type="button" class="btn btn-quiet btn-sm danger" :disabled="busy || it.state === 'sending'" :aria-label="`Eliminar ${f.name} de la capa`" @click="removeFile(it.id, f.slot)"><Icon name="trash-2" class="ic-14" />Eliminar</button>
+                    </li>
+                  </ul>
+                </section>
               </section>
 
               <section class="dcol dpreview" aria-labelledby="prevTitle">
@@ -255,7 +331,7 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
                 <PreviewMap v-if="it.geojson" :key="it.id" :geojson="it.geojson" />
                 <div v-else class="preview-map"><div class="pm-empty">{{ busy ? 'Leyendo geometrías…' : it.state === 'server' ? 'La vista previa de este formato la genera el servidor.' : 'Sin geometrías para mostrar.' }}</div></div>
                 <template v-if="it.geojson && fields.length">
-                  <div class="table-scroll">
+                  <div class="table-scroll" role="region" tabindex="0" aria-label="Tabla de atributos de la vista previa">
                     <table class="attr-table">
                       <thead><tr><th v-for="k in fields" :key="k">{{ k }}</th></tr></thead>
                       <tbody><tr v-for="(f, i) in rows" :key="i"><td v-for="k in fields" :key="k">{{ f.properties?.[k] ?? '' }}</td></tr></tbody>
@@ -270,6 +346,5 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
       </div>
       <div class="drop-veil" aria-hidden="true"><span><Icon name="file-up" class="ic-20" />Suelta para agregar al lote</span></div>
     </div>
-    <StudyDialog />
   </section>
 </template>

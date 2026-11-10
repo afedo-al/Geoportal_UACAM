@@ -3,6 +3,7 @@
 import { fmtNum } from './format.js';
 
 export const GROUPS = [
+  { id: 'publicadas', name: 'Capas publicadas' },
   { id: 'pruebas', name: 'Datos de prueba (QGIS)' },
   { id: 'sesion', name: 'Capas de la sesión' }
 ];

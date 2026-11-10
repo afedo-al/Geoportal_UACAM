@@ -1,6 +1,6 @@
-# Seguridad de la interfaz del Geoportal CEDESU
+# Seguridad del Geoportal CEDESU
 
-Este documento resume los controles que ya tiene la interfaz (`web/`, Vue 3 y OpenLayers; todo en el navegador) y lo que el servidor de producción debe hacer. La validación en el navegador es una primera barrera: **nunca sustituye la validación del servidor**, porque un atacante puede saltarse el JavaScript y enviar archivos directamente a la API.
+Este documento resume los controles de la interfaz (`web/`, Vue 3 y OpenLayers) y lo que falta para producción, empezando por el servicio de publicación, que aún no existe. La validación en el navegador es una primera barrera: **nunca sustituye la validación del servidor**, porque un atacante puede saltarse el JavaScript y enviar archivos directamente a la API.
 
 ## 1. Carga de archivos (`web/src/lib/filecheck.js`, `ingest-core.js`, `ingest.worker.js` y `web/src/stores/upload.js`)
 
@@ -24,6 +24,7 @@ Cada archivo se identifica por su **contenido real**, no por su extensión:
 | CSV / XLSX | Datos binarios en un CSV; celdas que parecen fórmulas (`=`, `+`, `-`, `@`) se marcan y se neutralizan al exportar |
 | Nombres | Caracteres de control, rutas, archivos ocultos, nombres de más de 180 caracteres, doble extensión con extensión ejecutable (`datos.php.geojson`) y caracteres de dirección de texto que disfrazan extensiones |
 | Integridad | Huella SHA-256 de cada archivo; se bloquean duplicados dentro del lote y la huella se envía al servidor |
+| Metadatos del estudio | Cada capa tiene su propio estudio, que se rellena con lo que declara el archivo (FGDC, ESRI, ISO 19139, KML, GPX, GeoJSON o propiedades de Excel; `web/src/lib/studyinfo.js`). El XML se lee solo si pesa 2 MB o menos y sin DOCTYPE, entidades ni hoja de estilo (se quitan antes los comentarios); se ignoran los textos de plantilla sin llenar (`REQUIRED: …`), «No conocido» y las fechas `00000000`; las rutas del equipo del autor que guarda ArcGIS no se importan; todo se muestra como texto, nunca como HTML. Tema, licencia y acceso solo se rellenan si el valor coincide con una opción permitida. |
 | Límites | 60 capas por lote, 400 MB por lote y 60 MB por archivo leído en el navegador |
 
 ## 2. Sitio web
@@ -32,26 +33,21 @@ Cada archivo se identifica por su **contenido real**, no por su extensión:
 - **Dependencias**: Vue, OpenLayers y SheetJS se instalan con npm y se empaquetan con el sitio; no se cargan scripts de terceros en tiempo de ejecución.
 - **Clickjacking**: `frame-ancestors 'none'` y `X-Frame-Options: DENY`, más un bloqueo en JavaScript si la página se carga dentro de un marco (`web/src/main.js`).
 - **XSS**: Vue escapa todo texto interpolado en las plantillas; las ventanas del mapa se construyen con `textContent`, nunca con HTML. Los datos guardados en el navegador se validan al cargarse (por ejemplo, se descartan URL `javascript:` y SVG en fotografías).
-- **Sesión de demostración**: caduca a las 8 horas y por 30 minutos de inactividad; se bloquea 60 segundos tras 5 intentos fallidos; al cerrar sesión se vacía el lote de carga. **Es solo de demostración**: las credenciales están en el código del navegador y la autenticación real debe hacerla la API.
+- **Sesión**: la validará el servidor (sección 4). La interfaz solo guarda quién inició sesión para mostrarlo; al cerrar sesión se vacía el lote de carga. Se comprueba que la contraseña no aparece en `web/dist`. Sin API configurada en el build, el acceso queda deshabilitado y el diálogo lo explica.
+- **Edición de las fichas de prueba**: solo con sesión. Lo editado en los conjuntos de prueba se guarda en este navegador (`localStorage`) y se valida al leerse: solo campos conocidos, texto recortado y sin caracteres de control. No es una protección real, pero tampoco publica nada: las capas del CEDESU solo cambian de estado en el servidor (Revisión), que comprueba el rol en cada petición.
 - **Envío al servidor**: solo al mismo origen o a HTTPS (`VITE_API_BASE`), con cabecera `X-Requested-With`, tiempo máximo y la huella SHA-256 de cada archivo.
-- **Fotografías de puntos GPS**: solo PNG, JPEG o WebP comprobados por contenido y de hasta 2 MB.
+- **Fotografías de puntos GPS**: solo PNG, JPEG o WebP comprobados por contenido y de hasta 2 MB, en el navegador y otra vez en el servidor. Se sirven con `Content-Security-Policy: sandbox`.
+- **Ubicación del dispositivo (Captura GPS)**: se consulta solo al pulsar «Usar mi ubicación», se escribe en el formulario y no se envía a ningún servidor. Los clics en el visor principal ya no cambian las coordenadas del formulario.
 
 ## 3. Servidores locales
 
 ```bash
-cd web
-npm run dev        # desarrollo: http://127.0.0.1:5174, sin CSP
-npm run preview    # build de producción: http://127.0.0.1:5175, con CSP y cabeceras de seguridad
+cd web && npm run dev       # interfaz: http://127.0.0.1:5174, sin CSP
+cd web && npm run preview   # build de producción: http://127.0.0.1:5175, con CSP y cabeceras de seguridad
 ```
 
-Ambos escuchan solo en `127.0.0.1` y publican únicamente la carpeta `web/` (en desarrollo) o `web/dist/` (en vista previa).
+Los puertos se publican solo en `127.0.0.1`.
 
-## 4. Lo que debe hacer el servidor de producción
+## 4. Servicio de publicación (pendiente)
 
-1. Servir **solo por HTTPS** con HSTS y `upgrade-insecure-requests` (ver `deploy/nginx-seguridad.conf`).
-2. Repetir **todas** las validaciones de la sección 1 con GDAL/OGR en un contenedor aislado, sin red, con límites de CPU, memoria y tiempo.
-3. Guardar los archivos en **cuarentena** fuera de la raíz web, con nombre aleatorio, y analizarlos con antivirus (ClamAV) antes de interpretarlos.
-4. Verificar que la huella SHA-256 recibida coincida con la del archivo.
-5. Autenticación con sesión del servidor (cookie `HttpOnly`, `Secure`, `SameSite=Strict`), segundo factor para administradores y protección CSRF de Django.
-6. Limitar la frecuencia de peticiones de inicio de sesión y de carga por usuario y por IP.
-7. Registrar en bitácora cada carga, rechazo, publicación y retiro (RF-010).
+No hay servidor en este repositorio. Según el RPT-003 (secciones 8 y 12) debe ofrecer: cuentas personales con segundo factor, cookies `HttpOnly`/`Secure`/`SameSite`, protección CSRF y límite de intentos; recepción en cuarentena fuera de la raíz web; antivirus y conversión con GDAL en un worker aislado sin red; estados de la carga con publicación atómica y versiones; bitácora que nadie pueda modificar; y comprobación de sesión y rol en cada petición (401/403). La validación del navegador descrita arriba no sustituye a ninguno de estos controles.
