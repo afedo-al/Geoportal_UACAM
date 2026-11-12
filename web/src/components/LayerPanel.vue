@@ -70,7 +70,7 @@ function clearFilter() { layers.filter = ''; filterEl.value?.focus(); }
   <section id="layersDock" ref="dock" class="dock dock-left" :inert="!ui.docks.left && !sheet.moving.value" aria-labelledby="layersTitle">
     <div class="dock-head" v-on="sheet.handlers">
       <span class="sheet-grip" aria-hidden="true"></span>
-      <h2 id="layersTitle"><Icon name="layers" />Capas <span class="count">{{ layers.entries.length }}</span></h2>
+      <h2 id="layersTitle"><Icon name="layers" />Capas <span class="count">{{ layers.entries.filter(l => !l.hidden).length }}</span></h2>
       <button type="button" class="icon-btn sheet-size" :aria-label="sheet.expanded.value ? 'Reducir el panel' : 'Expandir el panel'" :aria-expanded="String(sheet.expanded.value)" @click="sheet.toggleSize()">
         <Icon name="chevron-down" :class="{ 'is-up': !sheet.expanded.value }" />
       </button>
@@ -100,7 +100,10 @@ function clearFilter() { layers.filter = ''; filterEl.value?.focus(); }
                 @contextmenu="onContext($event, l.id)">
                 <input type="checkbox" class="vis" :checked="l.visible" :aria-label="`Mostrar ${l.name}`" @change="toggleLayer(l.id, $event.target.checked)">
                 <LayerSym :sym="l.sym" />
-                <button type="button" class="lname" :title="l.name" :aria-current="layers.selected === l.id ? 'true' : null" @click="selectLayer(l.id)">{{ l.name }}</button>
+                <button type="button" class="lname" :title="l.name" :aria-label="l.name" :aria-current="layers.selected === l.id ? 'true' : null" @click="selectLayer(l.id)">
+                  <span class="layer-name">{{ l.name }}</span>
+                  <span v-if="l.metaRecord?.tipo" class="layer-type">{{ l.metaRecord.tipo }}</span>
+                </button>
                 <span class="meta-flags">
                   <span v-if="l.loading" class="nodata" role="status" aria-label="Cargando"><Icon name="loader-2" class="ic-14 ic-spin" /></span>
                   <span v-if="l.error" class="nodata err" role="img" :aria-label="`Error: ${l.error}`" :data-tip="l.error"><Icon name="alert-circle" class="ic-14" /></span>
@@ -125,6 +128,7 @@ function clearFilter() { layers.filter = ''; filterEl.value?.focus(); }
         </div>
       </div>
     </div>
+    <button type="button" class="layer-catalog-link" @click="router.push('/catalogo')"><Icon name="book-open" />Explorar el catálogo<Icon name="arrow-right" /></button>
     <div class="basemaps" role="radiogroup" aria-labelledby="basemapLabel">
       <span id="basemapLabel" class="label">Mapa base</span>
       <div class="basemap-list">
