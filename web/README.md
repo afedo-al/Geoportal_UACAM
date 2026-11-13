@@ -21,6 +21,8 @@ npm run verify     # ejecuta las pruebas y el build de producción
 
 **Servicio de publicación (pendiente).** El acceso de administración, el envío de cargas, la pantalla Revisión, las capas publicadas y los puntos GPS compartidos necesitan un servidor que todavía no está en este repositorio (RPT-003, sección 8). La interfaz ya habla su API: se conecta compilando con `VITE_API_BASE=/api` y, en desarrollo, definiendo `GEOPORTAL_API` con la dirección del servidor para que Vite le redirija `/api`. Sin servidor, el mapa, el catálogo, la carga y la validación funcionan con los datos de prueba. En `npm run dev` hay una cuenta de demostración que se valida en el navegador (`src/lib/demo-account.js`: usuario `cedesu.admin` o `cedesu@admin.uacam.mx`) para recorrer las pantallas de administración; no protege nada y no se incluye en el build de producción salvo que se compile con `VITE_DEMO_LOCAL=1`. El build de producción no contiene ninguna contraseña.
 
+La pantalla **Revisión** incluye en desarrollo un flujo local de demostración con cargas de ejemplo. Permite recorrer aprobación, devolución para corrección, reapertura, publicación y archivo; los cambios solo viven en la pestaña y no sustituyen la API ni publican datos reales.
+
 `web/dist` es un sitio estático: se publica en cualquier servidor web (por ejemplo, nginx con `deploy/nginx-seguridad.conf`). **No funciona con doble clic** sobre `index.html`: los navegadores no cargan módulos JavaScript desde `file://`; usa `npm run dev` o `npm run preview`.
 
 Para el build de producción se define la dirección del servicio al compilar:

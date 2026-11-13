@@ -6,10 +6,11 @@ import { ref, computed, watch, onMounted } from 'vue';
 import Icon from '../components/Icon.vue';
 import KeyValues from '../components/KeyValues.vue';
 import PreviewMap from '../components/PreviewMap.vue';
-import { session } from '../stores/session.js';
+import { session, DEMO_LOCAL } from '../stores/session.js';
 import { showToast, confirmAction } from '../stores/ui.js';
 import { loadPublished } from '../stores/layers.js';
 import { api, hasApi, ApiError } from '../lib/api.js';
+import { reviewDemo } from '../lib/review-demo.js';
 import { FIELD_LABELS } from '../lib/study-fields.js';
 
 const FILTERS = [
@@ -44,11 +45,20 @@ const geojson = ref(null);
 const nota = ref('');
 const busy = ref(false);
 const isAdmin = computed(() => session.admin?.rol === 'admin');
+const demoMode = DEMO_LOCAL && !hasApi();
+const available = computed(() => hasApi() || demoMode);
 
 const errorText = err => (err instanceof ApiError ? err.detalle : 'No se pudo conectar con el servidor.');
 const fmtDateTime = iso => (iso ? new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
 async function loadList() {
+  if (demoMode) {
+    const body = reviewDemo.list(filter.value);
+    list.value = body.cargas;
+    totals.value = body.totales;
+    if (!list.value.some(c => c.id === selectedId.value)) select(list.value[0]?.id || null);
+    return;
+  }
   if (!hasApi()) return;
   loading.value = true;
   try {
@@ -64,6 +74,13 @@ async function select(id) {
   selectedId.value = id;
   detail.value = null; geojson.value = null; nota.value = '';
   if (!id) return;
+  if (demoMode) {
+    try {
+      detail.value = reviewDemo.detail(id);
+      geojson.value = Object.freeze(await reviewDemo.geometry(id));
+    } catch (err) { showToast('error', 'No se cargó la demostración', err.message); }
+    return;
+  }
   try {
     const d = await api(`/cargas/${id}`);
     if (selectedId.value !== id) return;
@@ -83,7 +100,9 @@ async function transition(estado) {
   if (a.confirm && !(await confirmAction({ title: `${a.label} «${d.titulo}»`, text: a.confirm, ok: a.label }))) return;
   busy.value = true;
   try {
-    detail.value = await api(`/cargas/${d.id}/estado`, { method: 'POST', json: { estado, nota: nota.value.trim() } });
+    detail.value = demoMode
+      ? reviewDemo.transition(d.id, estado, nota.value.trim())
+      : await api(`/cargas/${d.id}/estado`, { method: 'POST', json: { estado, nota: nota.value.trim() } });
     nota.value = '';
     showToast('success', `${detail.value.estadoTexto}`, `«${d.titulo}».`);
     if (estado === 'publicada' || d.estado === 'publicada') loadPublished();
@@ -123,8 +142,9 @@ onMounted(loadList);
           </div>
         </div>
 
-        <div v-if="!hasApi()" class="callout info"><Icon name="cloud-off" /><span>Esta versión no tiene servidor de publicación configurado.</span></div>
-        <template v-else>
+        <div v-if="demoMode" class="callout warn"><Icon name="info" /><span>Modo demostración local: los cambios viven solo en esta pestaña y no se publican en un servidor.</span></div>
+        <div v-else-if="!available" class="callout info"><Icon name="cloud-off" /><span>Esta versión no tiene servidor de publicación configurado.</span></div>
+        <template v-if="available">
           <div class="seg review-filters" role="radiogroup" aria-label="Filtrar por estado">
             <label v-for="[k, t] in FILTERS" :key="k">
               <input v-model="filter" type="radio" name="revFilter" :value="k">{{ t }}

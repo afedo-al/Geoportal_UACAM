@@ -36,7 +36,7 @@ La revisión controla el proceso antes de que un conjunto de datos se considere 
 4. La persona responsable revisa los metadatos y decide si el conjunto puede continuar al proceso de publicación.
 5. El servidor institucional deberá realizar la validación definitiva, guardar el expediente y registrar la decisión.
 
-En la versión actual, los pasos de validación y vista previa funcionan en el navegador con datos de prueba. La autenticación real, la persistencia, la revisión del servidor y la publicación definitiva todavía requieren la API institucional.
+En la versión actual, los pasos de validación y vista previa funcionan en el navegador con datos de prueba. En desarrollo, la pantalla también ofrece un modo demostración local para recorrer los cambios de estado; sus acciones viven únicamente en la pestaña y no publican datos. La autenticación real, la persistencia, la revisión del servidor y la publicación definitiva todavía requieren la API institucional.
 
 ## Estado del proyecto
 
@@ -46,6 +46,7 @@ En la versión actual, los pasos de validación y vista previa funcionan en el n
 - Pruebas automatizadas para coordenadas, formatos, seguridad y metadatos.
 - Build de producción optimizado con compresión Brotli y gzip.
 - CI configurado para ejecutar pruebas y build en cada cambio.
+- Flujo de revisión local disponible para demostraciones, sin publicar datos reales.
 - Backend/API productivo pendiente de implementación y conexión.
 
 ## Requisitos
