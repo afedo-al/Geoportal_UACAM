@@ -1,4 +1,4 @@
-# Geoportal CEDESU · interfaz en Vue y OpenLayers
+# DeltaMap-CEDESU · interfaz en Vue y OpenLayers
 
 Interfaz del geoportal con la tecnología definida en el DRS-001 (ADR-001): **Vue 3** para la interfaz y **OpenLayers** para el mapa, construida con **Vite**. Sustituye al prototipo estático con Leaflet, que se retiró.
 

@@ -2,6 +2,8 @@
 
 **DeltaMap-CEDESU** es el nombre del proyecto de geoportal institucional para centralizar, organizar, revisar, consultar y publicar de forma controlada la información geográfica generada por el Centro de Estudios para el Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre (CEDESU) de la Universidad Autónoma de Campeche (UACAM).
 
+> Este repositorio es una implementación de desarrollo y no constituye el repositorio oficial de la UACAM ni del CEDESU.
+
 El proyecto atiende la dispersión de mapas, coordenadas, fotografías y hojas de cálculo entre distintas computadoras, carpetas y formatos. Ofrece un mapa interactivo, catálogo de estudios, revisión de archivos geoespaciales, vista previa de capas y captura de puntos de campo desde el navegador.
 
 La aplicación web está construida con **Vue 3**, **Vite** y **OpenLayers**. La interfaz actual funciona con datos de prueba y está preparada para conectarse con el servicio institucional de publicación.
@@ -129,11 +131,3 @@ El resultado de `npm run build` se genera en `web/dist`. Este directorio puede p
 Este repositorio no contiene actualmente un archivo de licencia de software. Por lo tanto, los permisos de copia, modificación, distribución y uso del código quedan pendientes de una definición formal por parte de la UACAM/CEDESU.
 
 Los datos geográficos, logotipos, documentos y demás contenidos institucionales pueden estar sujetos a condiciones de uso distintas a las del código fuente. No deben redistribuirse sin autorización de sus titulares.
-
-## Contacto institucional
-
-**Centro de Estudios para el Desarrollo Sustentable (CEDESU)**
-
-**Universidad Autónoma de Campeche (UACAM)**
-
-Para solicitar información, reportar un problema o gestionar permisos de uso, contactar al CEDESU a través de los canales institucionales oficiales de la UACAM. El correo y la persona responsable del proyecto deben incorporarse aquí cuando sean confirmados por la institución.

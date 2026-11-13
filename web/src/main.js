@@ -14,7 +14,7 @@ import './styles/main.css';
 
 /* El geoportal no se muestra dentro de otro sitio (protección contra clickjacking) */
 if (window.top !== window.self) {
-  document.body.textContent = 'El Geoportal CEDESU no puede mostrarse dentro de otro sitio.';
+  document.body.textContent = 'DeltaMap-CEDESU no puede mostrarse dentro de otro sitio.';
   throw new Error('Geoportal incrustado en un marco: se detiene por seguridad.');
 }
 

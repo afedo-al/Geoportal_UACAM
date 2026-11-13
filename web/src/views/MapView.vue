@@ -51,7 +51,7 @@ watch(() => [ui.docks.left, ui.docks.right], () => setTimeout(() => { neat.value
 <template>
   <section id="screen-geoportal" class="screen active" aria-label="Visor cartográfico">
     <div id="workspace" class="workspace" :class="{ 'left-closed': !ui.docks.left, 'right-closed': !ui.docks.right }">
-      <div class="print-head">Geoportal CEDESU · Estado de Campeche</div>
+      <div class="print-head">DeltaMap-CEDESU · Estado de Campeche</div>
       <div class="map-stage">
         <div id="olMap" ref="mapEl" class="map-canvas" role="application" aria-label="Mapa interactivo del Estado de Campeche"></div>
       </div>

@@ -1,4 +1,4 @@
-# Geoportal CEDESU
+# DeltaMap-CEDESU
 
 > Visor cartográfico del Centro de Estudios para el Desarrollo Sustentable (CEDESU) de la Universidad Autónoma de Campeche (UACAM). Permite consultar capas geográficas y estudios del Estado de Campeche en un mapa interactivo.
 
