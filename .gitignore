@@ -1,6 +1,7 @@
 # Solo se versionan la interfaz, el despliegue y la documentacion
 /*
 !/.gitignore
+!/README.md
 !/web/
 !/deploy/
 !/docs/
