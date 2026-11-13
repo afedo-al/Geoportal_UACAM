@@ -6,6 +6,13 @@ El proyecto atiende la dispersión de mapas, coordenadas, fotografías y hojas d
 
 La aplicación web está construida con **Vue 3**, **Vite** y **OpenLayers**. La interfaz actual funciona con datos de prueba y está preparada para conectarse con el servicio institucional de publicación.
 
+## Colaboración institucional
+
+Proyecto desarrollado en colaboración entre:
+
+- **Facultad de Ingeniería, Universidad Autónoma de Campeche (UACAM)**, responsable del desarrollo y la implementación tecnológica.
+- **Centro de Estudios para el Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre (CEDESU)**, responsable del contexto institucional, los requerimientos y la información geográfica del proyecto.
+
 ## Alcance del proyecto
 
 - Consulta de capas geográficas, búsqueda, identificación y medición en el mapa.
