@@ -30,6 +30,14 @@ VITE_API_BASE=/api npm run build
 
 Sin ella, el sitio funciona como consulta estática: no hay acceso de administración y la pantalla de carga indica que el servidor no está configurado.
 
+## Demostración de Revisión
+
+Con `npm run dev`, inicia sesión usando **Usar esta cuenta** y abre **Revisión**. Sin una API configurada, esta pantalla muestra los tres conjuntos aportados desde `Documents/QGIS`: `11_municipios_2015_v1.shp` (11 municipios), `mexico.shp` (32 entidades) y `clima1mgw.shp` (1,182 entidades). Usa sus versiones GeoJSON reproyectadas/simplificadas de `public/data/`, con los colores del visor, metadatos documentados y el inventario de archivos originales (tamaños y SHA-256 en `src/lib/review-qgis-data.js`). Los metadatos ausentes se indican como no documentados. Los originales de QGIS no se modifican ni se copian al sitio.
+
+Las tres capas empiezan **En revisión**. Los datos geográficos son reales; aprobar, devolver con nota, publicar, archivar y reabrir son acciones simuladas. **Reiniciar demo** restaura los estados para repetir la presentación. Las comprobaciones locales no representan un análisis antivirus ni una validación del servidor.
+
+Los cambios se mantienen al cambiar de pantalla, pero se pierden al recargar. No se envían archivos ni se añaden capas al catálogo o al mapa público. Esta demostración usa el modo local existente: para incluirla en un build de presentación en PowerShell, ejecuta `$env:VITE_DEMO_LOCAL='1'; npm run build` y después `Remove-Item Env:VITE_DEMO_LOCAL`. Un build normal sin API ni esta variable conserva el aviso de servidor no configurado.
+
 ## Estructura
 
 | Carpeta | Contenido |

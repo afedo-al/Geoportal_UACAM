@@ -17,6 +17,7 @@ const loteList = computed(() => studies.list.filter(r => r.listed).map(r => {
   const m = metaFromStudy(r);
   return {
     id: loteId(r.id), rec: r, lote: true, m, title: r.sTitle || r.layerName, theme: r.sTheme || 'Sin tema', date: (r.sDate || '').slice(0, 7), desc: m.resumen,
+    published: !!r.published,
     facts: [m.formato, r.facts.n ? `${r.facts.n.toLocaleString('es-MX')} entidades` : ''].filter(Boolean)
   };
 }));
@@ -28,7 +29,7 @@ const onMap = s => layers.entries.some(e => e.studyId === s.rec?.id);
 function editStudy(s) { openStudyEditor(s.lote ? s.rec.id : `dataset:${s.id}`); }
 function removeStudy(s) { if (s.lote) deleteStudy(s.rec.id); else hideDataset(s.id); }
 const hiddenCount = computed(() => layers.entries.filter(e => e.hidden).length);
-const publishedCount = computed(() => layers.entries.filter(e => e.remote).length);
+const publishedCount = computed(() => layers.entries.filter(e => e.remote || e.published).length);
 function openInUpload(s) { studies.focus = s.rec.id; router.push('/carga'); }
 
 const list = computed(() => {
@@ -80,7 +81,7 @@ function reset() { q.value = ''; theme.value = ''; year.value = ''; }
             <div class="cat-headrow" aria-hidden="true"><span>Conjunto de datos</span><span>Tema</span><span>Sistema de referencia</span><span></span></div>
             <article v-for="s in list" :key="s.id" class="cat-row" :data-study="s.id">
               <div class="cat-main">
-                <h2>{{ s.title }} <span v-if="s.lote" class="badge badge-warn">Sin publicar · solo esta sesión</span><span v-else-if="s.published" class="badge badge-ok">Publicada</span><span v-else class="badge badge-info">Datos de prueba</span><span v-if="s.edited" class="badge">Editado en este navegador</span></h2>
+                <h2>{{ s.title }} <span v-if="s.lote && !s.published" class="badge badge-warn">Sin publicar · solo esta sesión</span><span v-else-if="s.published" class="badge badge-ok">Publicada</span><span v-else class="badge badge-info">Datos de prueba</span><span v-if="s.edited" class="badge">Editado en este navegador</span></h2>
                 <p class="desc" :title="s.desc && s.desc.length > 220 ? s.desc : null">{{ s.desc }}</p>
                 <div class="facts">
                   <span v-if="s.date"><Icon name="calendar" class="ic-14" />{{ fmtDate(s.date) }}</span>

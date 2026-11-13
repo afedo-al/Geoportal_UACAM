@@ -102,6 +102,7 @@ export function saveStudy(id, values, { shareWith = false } = {}) {
     if (!rec.edited.includes(k)) rec.edited.push(k);
     delete rec.auto[k];
   }
+
   if (shareWith) {
     for (const other of studies.list) {
       if (other.id === id) continue;
@@ -112,6 +113,14 @@ export function saveStudy(id, values, { shareWith = false } = {}) {
       if (touched) emit(other);
     }
   }
+  emit(rec);
+}
+
+export function markStudyPublished(id, published = true) {
+  const rec = studyById(id);
+  if (!rec) return;
+  rec.published = published;
+  rec.listed = true;
   emit(rec);
 }
 

@@ -44,7 +44,7 @@ const DATA = `${import.meta.env.BASE_URL}data/`;
 /* style(p) recibe los atributos de la entidad y devuelve el estilo; zIndex fija el orden de dibujo */
 export const DATASETS = [
   {
-    id: 'qgisMunicipios', name: 'Municipios de Quintana Roo (2015)', url: `${DATA}municipios_qroo_2015.geojson`, visible: true, zIndex: 404, label: 'MUNICIPIO',
+    id: 'qgisMunicipios', name: 'Municipios de Quintana Roo (2015)', url: `${DATA}municipios_qroo_2015.geojson`, visible: false, zIndex: 404, label: 'MUNICIPIO',
     sym: { t: 'ramp', ramp: DENS_COLORS },
     style: p => ({ color: '#ffffff', weight: 1.2, opacity: 1, fillColor: densColor(+p.DEN || 0), fillOpacity: 0.78 }),
     tip: p => `${p.MUNICIPIO} · ${fmtNum(p['POBLACIÓN'])} hab · ${fmtNum(p.DEN, 1)} hab/km²`,
@@ -59,7 +59,7 @@ export const DATASETS = [
     })
   },
   {
-    id: 'qgisEntidades', name: 'Entidades federativas', url: `${DATA}mexico_entidades.geojson`, visible: true, zIndex: 406, label: 'NOM_ENT',
+    id: 'qgisEntidades', name: 'Entidades federativas', url: `${DATA}mexico_entidades.geojson`, visible: false, zIndex: 406, label: 'NOM_ENT',
     sym: { t: 'poly', c: '#0b1f3a', f: 'transparent' },
     style: () => ({ color: '#0b1f3a', weight: 1.1, opacity: 0.8, fillColor: '#0b1f3a', fillOpacity: 0 }),
     tip: p => `${p.NOM_ENT} · ${fmtNum(p['áreakm2'])} km²`,
