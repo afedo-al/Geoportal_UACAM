@@ -13,49 +13,21 @@ import { defaults as defaultControls } from 'ol/control/defaults.js';
 import { fromLonLat } from 'ol/proj.js';
 import { BASEMAPS, vectorStyle } from '../stores/map.js';
 
-const props = defineProps({
-  geojson: { type: Object, default: null },
-  featureStyle: { type: Function, default: null }
-});
+const props = defineProps({ geojson: { type: Object, default: null } });
 const el = ref(null);
-let map = null, layer = null, tip = null, tipEl = null, drawFrame = 0, drawVersion = 0;
+let map = null, layer = null, tip = null, tipEl = null;
 const style = vectorStyle({ color: '#214c7e', weight: 1.4, fillColor: '#214c7e', fillOpacity: 0.18 }, '#214c7e');
 
 function draw() {
   if (!map) return;
   const src = layer.getSource();
-  drawVersion++;
-  const version = drawVersion;
-  if (drawFrame) cancelAnimationFrame(drawFrame);
-  drawFrame = 0;
   src.clear();
   if (!props.geojson) return;
-  const rawFeatures = props.geojson.features || [];
-  const chunkSize = Math.max(1, Math.ceil(rawFeatures.length / 24));
-  let index = 0;
-
-  const paintChunk = () => {
-    if (version !== drawVersion) return;
-    const end = Math.min(index + chunkSize, rawFeatures.length);
-    if (end > index) {
-      src.addFeatures(new GeoJSON().readFeatures(
-        { type: 'FeatureCollection', features: rawFeatures.slice(index, end) },
-        { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }
-      ));
-      index = end;
-      map.updateSize();
-    }
-    if (index < rawFeatures.length) {
-      drawFrame = requestAnimationFrame(paintChunk);
-      return;
-    }
-    drawFrame = 0;
-    const ext = src.getExtent();
-    if (src.getFeatures().length && ext.every(Number.isFinite)) map.getView().fit(ext, { padding: [16, 16, 16, 16], maxZoom: 15 });
-    else map.getView().setCenter(fromLonLat([-90.5, 19.3]));
-  };
-
-  paintChunk();
+  src.addFeatures(new GeoJSON().readFeatures(props.geojson, { dataProjection: 'EPSG:4326', featureProjection: 'EPSG:3857' }));
+  map.updateSize();
+  const ext = src.getExtent();
+  if (src.getFeatures().length && ext.every(Number.isFinite)) map.getView().fit(ext, { padding: [16, 16, 16, 16], maxZoom: 15 });
+  else map.getView().setCenter(fromLonLat([-90.5, 19.3]));
 }
 
 /* Rótulo con el primer atributo descriptivo de la entidad bajo el cursor */
@@ -71,7 +43,7 @@ function onMove(e) {
 
 onMounted(() => {
   const osm = BASEMAPS.osm;
-  layer = new VectorLayer({ source: new VectorSource(), style: feature => props.featureStyle ? vectorStyle(props.featureStyle(feature.getProperties()), '#214c7e') : style });
+  layer = new VectorLayer({ source: new VectorSource(), style });
   tipEl = document.createElement('div'); tipEl.className = 'map-tip';
   tip = new Overlay({ element: tipEl, offset: [0, -12], positioning: 'bottom-center', stopEvent: false });
   map = new OLMap({
@@ -85,13 +57,7 @@ onMounted(() => {
   draw();
 });
 watch(() => props.geojson, draw);
-watch(() => props.featureStyle, () => layer?.changed());
-onBeforeUnmount(() => {
-  drawVersion++;
-  if (drawFrame) cancelAnimationFrame(drawFrame);
-  map?.setTarget(undefined);
-  map = null;
-});
+onBeforeUnmount(() => { map?.setTarget(undefined); map = null; });
 </script>
 
 <template>

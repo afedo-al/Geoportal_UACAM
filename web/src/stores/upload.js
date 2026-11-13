@@ -641,30 +641,12 @@ async function sendLayers(list) {
     return;
   }
   if (!hasApi()) {
-    const demo = (await import('../lib/review-demo.js')).reviewDemo;
     list.forEach(id => {
       const it = byId(id);
-      const rec = studyById(id);
-      demo.addUpload({
-        id: `manual-${id}`,
-        titulo: rec.sTitle || it.layerName,
-        capa: it.layerName,
-        formato: it.format || it.srcFormat,
-        entidades: it.geojson?.features?.length || 0,
-        bbox: rec.facts?.bbox || null,
-        crs: it.crs || 'EPSG:4326',
-        archivos: fileList(it).map(file => ({ nombre: file.name, tam: file.size || 0 })),
-        geojson: it.geojson,
-        estudio: studyPayload(rec)
-      });
-      it.state = 'sent';
-      it.serverId = `manual-${id}`;
-      it.message = msg('check-circle-2', ['b', 'Enviada a revisión.'], ['t', ' Completa el flujo en la pantalla Revisión para publicarla.']);
-      if (!layers.entries.some(e => e.studyId === id) && it.geojson) {
-        addSessionLayer(it.layerName, it.geojson, metaFromStudy(rec), id);
-      }
+      it.state = 'failed';
+      it.message = msg('cloud-off', ['b', 'No se envió.'], ['t', ' Este prototipo no tiene configurado un servidor de publicación ('], ['code', 'VITE_API_BASE'], ['t', '). Nada se ha publicado; puedes verla en el mapa como capa de sesión.']);
     });
-    showToast('success', 'Carga enviada a revisión', 'Completa la ficha y publícala desde el apartado Revisión.');
+    showToast('error', 'Envío no disponible', 'No hay servidor de publicación configurado. Nada se publicó.');
     return;
   }
   const done = startTask(list.length === 1 ? `Enviando ${byId(list[0])?.layerName || 'capa'}` : 'Enviando lote');

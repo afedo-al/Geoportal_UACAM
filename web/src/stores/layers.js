@@ -368,17 +368,8 @@ export function refreshSessionData(studyId, geojson) {
       const ext = transformExtent(src.getExtent(), 'EPSG:3857', 'EPSG:4326');
       e.metaRecord = { ...e.metaRecord, bbox: [ext[1], ext[3], ext[0], ext[2]] };
     }
-
     if (layers.feature?.layer === e.id) layers.feature = null;
   });
-}
-
-export function publishSessionLayer(studyId) {
-  const entry = layers.entries.find(e => e.studyId === studyId);
-  if (!entry) return;
-  entry.published = true;
-  entry.visible = true;
-  entry.olLayer.setVisible(true);
 }
 
 export function removeSessionLayer(id, { silent = false } = {}) {
