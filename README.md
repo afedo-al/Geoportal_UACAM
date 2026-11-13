@@ -1,6 +1,6 @@
-# Geoportal CEDESU · UACAM
+# DeltaMap-CEDESU · UACAM
 
-El Geoportal CEDESU es una plataforma web institucional para centralizar, organizar, revisar, consultar y publicar de forma controlada la información geográfica generada por el Centro de Estudios para el Desarrollo Sustentable de la Universidad Autónoma de Campeche (UACAM).
+**DeltaMap-CEDESU** es el nombre del proyecto de geoportal institucional para centralizar, organizar, revisar, consultar y publicar de forma controlada la información geográfica generada por el Centro de Estudios para el Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre (CEDESU) de la Universidad Autónoma de Campeche (UACAM).
 
 El proyecto atiende la dispersión de mapas, coordenadas, fotografías y hojas de cálculo entre distintas computadoras, carpetas y formatos. Ofrece un mapa interactivo, catálogo de estudios, revisión de archivos geoespaciales, vista previa de capas y captura de puntos de campo desde el navegador.
 
