@@ -26,6 +26,18 @@ Proyecto desarrollado en colaboración entre:
 
 El servidor productivo, la persistencia, los usuarios reales, la segunda validación de archivos y la bitácora de publicación corresponden a la siguiente etapa del proyecto.
 
+## Flujo de revisión
+
+La revisión controla el proceso antes de que un conjunto de datos se considere publicado:
+
+1. Una persona administradora carga el archivo geográfico.
+2. La interfaz valida el formato, la estructura, la integridad y los límites del archivo.
+3. El sistema genera una vista previa para comprobar la geometría, los atributos y la simbología.
+4. La persona responsable revisa los metadatos y decide si el conjunto puede continuar al proceso de publicación.
+5. El servidor institucional deberá realizar la validación definitiva, guardar el expediente y registrar la decisión.
+
+En la versión actual, los pasos de validación y vista previa funcionan en el navegador con datos de prueba. La autenticación real, la persistencia, la revisión del servidor y la publicación definitiva todavía requieren la API institucional.
+
 ## Estado del proyecto
 
 - Frontend funcional para consulta cartográfica, catálogo, carga, captura GPS y revisión.
