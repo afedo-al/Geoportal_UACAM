@@ -125,7 +125,8 @@ Los datos geográficos, logotipos, documentos y demás contenidos institucionale
 
 ## Contacto institucional
 
-**Centro de Estudios para el Desarrollo Sustentable (CEDESU)**  
+**Centro de Estudios para el Desarrollo Sustentable (CEDESU)**
+
 **Universidad Autónoma de Campeche (UACAM)**
 
 Para solicitar información, reportar un problema o gestionar permisos de uso, contactar al CEDESU a través de los canales institucionales oficiales de la UACAM. El correo y la persona responsable del proyecto deben incorporarse aquí cuando sean confirmados por la institución.
