@@ -1,8 +1,21 @@
 # Geoportal CEDESU · UACAM
 
-Geoportal institucional para la consulta, visualización y revisión de información geográfica del CEDESU y la Universidad Autónoma de Campeche.
+El Geoportal CEDESU es una plataforma web institucional para centralizar, organizar, revisar, consultar y publicar de forma controlada la información geográfica generada por el Centro de Estudios para el Desarrollo Sustentable de la Universidad Autónoma de Campeche (UACAM).
 
-La aplicación web está construida con **Vue 3**, **Vite** y **OpenLayers**. Actualmente funciona como una interfaz cartográfica estática con datos de prueba y una capa de integración preparada para conectarse con la API institucional.
+El proyecto atiende la dispersión de mapas, coordenadas, fotografías y hojas de cálculo entre distintas computadoras, carpetas y formatos. Ofrece un mapa interactivo, catálogo de estudios, revisión de archivos geoespaciales, vista previa de capas y captura de puntos de campo desde el navegador.
+
+La aplicación web está construida con **Vue 3**, **Vite** y **OpenLayers**. La interfaz actual funciona con datos de prueba y está preparada para conectarse con el servicio institucional de publicación.
+
+## Alcance del proyecto
+
+- Consulta de capas geográficas, búsqueda, identificación y medición en el mapa.
+- Catálogo de estudios con metadatos de autoría, fechas, descripción, licencia y acceso.
+- Carga y revisión inicial de GeoJSON, Shapefile, KML/KMZ, GPX, GeoPackage, GeoTIFF, CSV y Excel.
+- Vista previa de archivos y configuración de simbología antes de su publicación.
+- Registro, validación, importación y exportación de puntos de campo.
+- Flujo de acceso restringido para carga, edición, revisión y publicación.
+
+El servidor productivo, la persistencia, los usuarios reales, la segunda validación de archivos y la bitácora de publicación corresponden a la siguiente etapa del proyecto.
 
 ## Estado del proyecto
 
@@ -101,3 +114,18 @@ El resultado de `npm run build` se genera en `web/dist`. Este directorio puede p
 - [Documentación del frontend](web/README.md)
 - [Configuración de nginx](deploy/nginx-seguridad.conf)
 - [Pruebas de revisión QGIS](docs/pruebas-revision-qgis.md)
+- [Propuesta y objetivos del proyecto](docs/propuesta_geoportal.md)
+- [Controles de seguridad](docs/seguridad.md)
+
+## Licencia y uso
+
+Este repositorio no contiene actualmente un archivo de licencia de software. Por lo tanto, los permisos de copia, modificación, distribución y uso del código quedan pendientes de una definición formal por parte de la UACAM/CEDESU.
+
+Los datos geográficos, logotipos, documentos y demás contenidos institucionales pueden estar sujetos a condiciones de uso distintas a las del código fuente. No deben redistribuirse sin autorización de sus titulares.
+
+## Contacto institucional
+
+**Centro de Estudios para el Desarrollo Sustentable (CEDESU)**  
+**Universidad Autónoma de Campeche (UACAM)**
+
+Para solicitar información, reportar un problema o gestionar permisos de uso, contactar al CEDESU a través de los canales institucionales oficiales de la UACAM. El correo y la persona responsable del proyecto deben incorporarse aquí cuando sean confirmados por la institución.
