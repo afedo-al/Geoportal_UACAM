@@ -3,7 +3,7 @@ import { ref, onMounted } from 'vue';
 import Icon from './Icon.vue';
 
 const dlg = ref(null);
-const STORAGE_KEY = 'cedesuWelcomeSeen';
+const STORAGE_KEY = 'cedesuWelcomeSeenV2';
 
 function close() {
   localStorage.setItem(STORAGE_KEY, '1');
@@ -21,16 +21,16 @@ onMounted(() => {
       <div>
         <p class="welcome-kicker">DELTA·MAP CEDESU</p>
         <h2 id="welcomeTitle">Bienvenido al Geoportal</h2>
-        <p>Un espacio para consultar, organizar, revisar y compartir información geográfica de Campeche.</p>
+        <p>Un espacio para consultar, organizar, revisar y compartir información geográfica del CEDESU.</p>
       </div>
     </div>
     <div class="welcome-body">
-      <h3>Finalidad de la plataforma</h3>
-      <p>Centralizar los mapas, estudios y puntos de campo del CEDESU para que puedan consultarse desde el navegador, con sus atributos, metadatos y ubicación. La publicación se realiza de forma controlada, después de validar y revisar cada conjunto de datos.</p>
+      <h3>Finalidad del visualizador cartográfico</h3>
+      <p>Desarrollar una plataforma web interactiva que permita centralizar, organizar, validar, visualizar y administrar la información geográfica del CEDESU mediante un visor cartográfico, la gestión de capas, un catálogo de estudios y un proceso de publicación controlada de datos.</p>
       <h3>Colaboración institucional</h3>
       <ul class="welcome-collaborators">
-        <li><Icon name="building-2" /><span><b>Facultad de Ingeniería · UACAM</b><small>Desarrollo e implementación tecnológica</small></span></li>
-        <li><Icon name="leaf" /><span><b>CEDESU · UACAM</b><small>Contexto institucional, requerimientos e información geográfica</small></span></li>
+        <li><Icon name="building-2" /><span><b>Facultad de Ingeniería, Universidad Autónoma de Campeche (UACAM)</b><small>Desarrollo e implementación tecnológica</small></span></li>
+        <li><Icon name="leaf" /><span><b>Centro de Estudios para el Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre (CEDESU)</b><small>Contexto institucional, requerimientos e información geográfica</small></span></li>
       </ul>
     </div>
     <div class="dlg-foot">
