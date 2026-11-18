@@ -277,11 +277,17 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
                 <div v-if="it.format === 'shp' && it.needsCrs" class="field dcard">
                   <span id="crsPickL" class="label">Sistema de referencia del Shapefile</span>
                   <div class="seg" role="radiogroup" aria-labelledby="crsPickL">
-                    <label><input type="radio" name="shpCrs" value="geo" @change="declareCrs(it.id, 'geo')"> WGS 84 · grados</label>
-                    <label><input type="radio" name="shpCrs" value="15" @change="declareCrs(it.id, '15')"> UTM 15N</label>
-                    <label><input type="radio" name="shpCrs" value="16" @change="declareCrs(it.id, '16')"> UTM 16N</label>
+                    <label title="Latitud y longitud en grados decimales. Ejemplo: 19.84530, -90.52283">
+                      <input type="radio" name="shpCrs" value="geo" @change="declareCrs(it.id, 'geo')"> WGS 84 · grados decimales
+                    </label>
+                    <label title="Coordenadas en metros; zona UTM 15N, longitudes de 96° O a 90° O (oeste de Campeche)">
+                      <input type="radio" name="shpCrs" value="15" @change="declareCrs(it.id, '15')"> UTM 15N · metros
+                    </label>
+                    <label title="Coordenadas en metros; zona UTM 16N, longitudes de 90° O a 84° O (este de Campeche)">
+                      <input type="radio" name="shpCrs" value="16" @change="declareCrs(it.id, '16')"> UTM 16N · metros
+                    </label>
                   </div>
-                  <span class="hint">Usa el sistema documentado por la fuente del estudio. El datum se asume WGS 84.</span>
+                  <span class="hint">WGS 84 en grados decimales usa latitud/longitud. UTM usa Este/Norte en metros: 15N cubre longitudes 96° O–90° O y 16N cubre 90° O–84° O. El datum se asume WGS 84; si existe, usa el archivo .prj para no adivinar.</span>
                   <button type="button" class="btn btn-quiet btn-sm align-start" @click="askFile('prj')"><Icon name="file-up" />O añade el .prj de la capa</button>
                 </div>
 
@@ -294,10 +300,12 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
                   </div>
                   <div class="field"><span id="tblCrsL" class="label">Sistema de referencia</span>
                     <div class="seg" role="radiogroup" aria-labelledby="tblCrsL">
-                      <label v-for="[v, t] in [['wgs84', 'WGS 84 · grados'], ['utm15', 'UTM 15N'], ['utm16', 'UTM 16N']]" :key="v">
+                      <label v-for="[v, t, help] in [['wgs84', 'WGS 84 · grados decimales', 'Latitud/longitud, por ejemplo 19.84530, -90.52283'], ['utm15', 'UTM 15N · metros', 'Este/Norte en metros; longitudes 96° O–90° O'], ['utm16', 'UTM 16N · metros', 'Este/Norte en metros; longitudes 90° O–84° O']]" :key="v" :title="help">
                         <input v-model="it.mapping.crs" type="radio" name="tblCrs" :value="v" @change="updateMapping(it.id)"> {{ t }}
                       </label>
-                    </div></div>
+                    </div>
+                    <span class="hint">Si la tabla trae X/Y grandes (por ejemplo, 700000 y 2200000), es UTM; confirma la zona indicada por la fuente.</span>
+                  </div>
                   <button type="button" class="btn btn-secondary btn-sm" :disabled="it.mapping.confirmed" @click="confirmMapping(it.id)">
                     <Icon name="check" />{{ it.mapping.confirmed ? 'Columnas confirmadas' : 'Confirmar columnas' }}
                   </button>

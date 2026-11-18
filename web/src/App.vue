@@ -8,6 +8,7 @@ import TooltipHost from './components/TooltipHost.vue';
 import LoginDialog from './components/LoginDialog.vue';
 import ConfirmDialog from './components/ConfirmDialog.vue';
 import MetaDialog from './components/MetaDialog.vue';
+import WelcomeDialog from './components/WelcomeDialog.vue';
 import { ui, closeMenu, setDock } from './stores/ui.js';
 import { session } from './stores/session.js';
 import { studies, closeStudyEditor } from './stores/studies.js';
@@ -58,6 +59,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey));
   <MetaDialog />
   <StudyDialog v-if="studies.editing && session.admin" />
   <ConfirmDialog />
+  <WelcomeDialog />
   <TooltipHost />
   <ToastHost />
 </template>

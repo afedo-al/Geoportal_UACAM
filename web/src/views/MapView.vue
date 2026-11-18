@@ -103,10 +103,10 @@ watch(() => [ui.docks.left, ui.docks.right], () => setTimeout(() => { neat.value
     <footer class="statusbar" aria-label="Estado del mapa">
       <span class="cell">
         <label for="coordSystem" class="sr-only">Sistema de coordenadas mostrado</label>
-        <select id="coordSystem" v-model="mapState.crs" class="select">
-          <option value="wgs84">WGS 84 · grados</option>
-          <option value="utm15">UTM 15N · m</option>
-          <option value="utm16">UTM 16N · m</option>
+        <select id="coordSystem" v-model="mapState.crs" class="select" title="Cambia la forma en que se muestran las coordenadas del cursor">
+          <option value="wgs84">WGS 84 · grados decimales (latitud/longitud)</option>
+          <option value="utm15">UTM 15N · metros (96° O–90° O)</option>
+          <option value="utm16">UTM 16N · metros (90° O–84° O)</option>
         </select>
       </span>
       <span class="cell coord"><Icon name="mouse-pointer-2" class="ic-14" /><span class="mono">{{ coordText() }}</span></span>

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCoord, formatCoord, toUTM, niceScale, fmtLen, fmtArea, geodesicArea } from '../src/lib/geo.js';
+import { parseCoord, formatCoord, toUTM, fromUTM, niceScale, fmtLen, fmtArea, geodesicArea } from '../src/lib/geo.js';
 
 test('parseCoord: decimales con coma, punto, hemisferios y grados', () => {
   assert.deepEqual(parseCoord('19.84, -90.53'), { lat: 19.84, lon: -90.53 });
@@ -23,6 +23,15 @@ test('toUTM: el meridiano central de la zona tiene Este 500 000 y es simétrico'
   assert.ok(Math.abs((w.x + e.x) - 1000000) < 1e-3);
   assert.ok(Math.abs(w.y - e.y) < 1e-3);
   assert.equal(toUTM(0, -93, 15).y, 0);
+});
+
+test('fromUTM: convierte de regreso a grados decimales en 15N y 16N', () => {
+  for (const [lat, lon, zone] of [[19.8453, -90.52283, 15], [20.1, -88.7, 16]]) {
+    const utm = toUTM(lat, lon, zone);
+    const result = fromUTM(utm.x, utm.y, zone);
+    assert.ok(Math.abs(result.lat - lat) < 1e-5);
+    assert.ok(Math.abs(result.lon - lon) < 1e-5);
+  }
 });
 
 test('escala, longitudes y áreas legibles', () => {

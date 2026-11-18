@@ -81,13 +81,13 @@ function rgba(hex, a) {
 /* Convierte {color, weight, opacity, fillColor, fillOpacity} (el formato del prototipo) en un estilo de OpenLayers.
    El relleno nunca es totalmente transparente: así la entidad se puede identificar con un clic en su interior. */
 export function vectorStyle(o, pointColor = '#214c7e') {
-  const key = [o.color, o.weight, o.opacity ?? 1, o.fillColor, o.fillOpacity, pointColor].join('|');
+  const key = [o.color, o.weight, o.opacity ?? 1, o.fillColor, o.fillOpacity, o.pointRadius ?? 5, pointColor].join('|');
   let s = styleCache.get(key);
   if (!s) {
     s = new Style({
       stroke: new Stroke({ color: rgba(o.color, o.opacity ?? 1), width: o.weight }),
       fill: new Fill({ color: rgba(o.fillColor || o.color, Math.max(o.fillOpacity ?? 0, 0.01)) }),
-      image: new CircleStyle({ radius: 5, fill: new Fill({ color: pointColor }), stroke: new Stroke({ color: '#ffffff', width: 1.5 }) })
+      image: new CircleStyle({ radius: Math.max(2, Math.min(20, Number(o.pointRadius) || 5)), fill: new Fill({ color: pointColor }), stroke: new Stroke({ color: '#ffffff', width: 1.5 }) })
     });
     styleCache.set(key, s);
   }

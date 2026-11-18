@@ -23,6 +23,65 @@ export const layers = reactive({
 const featureIndex = new WeakMap();   // entidad de OpenLayers → posición en el GeoJSON original
 const featuresOf = new Map();         // id de capa → entidades de OpenLayers, en el orden del GeoJSON
 const pending = new Map();            // id de capa → promesa de descarga
+const STYLE_KEY = 'cedesuLayerStyles';
+const STYLE_FIELDS = ['color', 'fillColor', 'weight', 'opacity', 'fillOpacity', 'pointRadius', 'mode', 'field', 'classes', 'classification'];
+const DENSITY_RAMPS = ['#eff6e8', '#c7e9c0', '#7fcdbb', '#41b6c4', '#225ea8'];
+const defaultStyle = { color: '#214c7e', fillColor: '#214c7e', weight: 1.5, opacity: 0.95, fillOpacity: 0.22, pointRadius: 5, mode: 'single', field: '', classes: 5, classification: 'equal' };
+const savedStyles = store.get(STYLE_KEY, {});
+const cleanStyle = value => {
+  const out = {};
+  STYLE_FIELDS.forEach(k => {
+    if (value && Object.prototype.hasOwnProperty.call(value, k)) out[k] = value[k];
+  });
+  return { ...defaultStyle, ...out, classes: Math.max(3, Math.min(5, Number(out.classes) || 5)), classification: out.classification === 'quantile' ? 'quantile' : 'equal' };
+};
+const persistStyle = (id, style) => {
+  const all = store.get(STYLE_KEY, {});
+  store.set(STYLE_KEY, { ...(all && typeof all === 'object' ? all : {}), [id]: style });
+};
+const statsCache = new Map();
+function numericStats(e, field) {
+  const key = `${e.id}:${field}`;
+  const cached = statsCache.get(key);
+  if (cached?.geojson === e.geojson) return cached.stats;
+  const values = (e.geojson?.features || []).map(f => Number(f.properties?.[field])).filter(Number.isFinite).sort((a, b) => a - b);
+  const stats = values.length ? { values, min: values[0], max: values[values.length - 1] } : null;
+  statsCache.set(key, { geojson: e.geojson, stats });
+  return stats;
+}
+function classIndex(stats, value, classes, classification) {
+  if (!stats || !Number.isFinite(value)) return -1;
+  if (stats.min === stats.max) return classes - 1;
+  if (classification === 'quantile') {
+    for (let i = 0; i < classes; i++) {
+      const upper = stats.values[Math.min(stats.values.length - 1, Math.ceil(((i + 1) / classes) * stats.values.length) - 1)];
+      if (value <= upper) return i;
+    }
+    return classes - 1;
+  }
+  return Math.max(0, Math.min(classes - 1, Math.floor(((value - stats.min) / (stats.max - stats.min)) * classes)));
+}
+function layerStyle(e, props) {
+  const base = e.def?.style ? e.def.style(props) : { ...defaultStyle };
+  const custom = e.styleConfig;
+  if (!custom) return vectorStyle(base);
+  let fillColor = custom.fillColor;
+  if (custom.mode === 'density' && custom.field) {
+    const stats = numericStats(e, custom.field);
+    const value = Number(props?.[custom.field]);
+    const index = classIndex(stats, value, custom.classes, custom.classification);
+    if (index >= 0) fillColor = DENSITY_RAMPS[Math.min(DENSITY_RAMPS.length - 1, index)];
+  }
+  return vectorStyle({
+    ...base, color: custom.color, fillColor, weight: Number(custom.weight),
+    opacity: Number(custom.opacity), fillOpacity: Number(custom.fillOpacity)
+  }, custom.color);
+}
+export const styleFields = e => {
+  const first = e?.geojson?.features?.[0]?.properties || {};
+  return Object.keys(first).filter(k => (e.geojson.features || []).some(f => Number.isFinite(Number(f.properties?.[k]))));
+};
+export const styleConfigOf = e => e?.styleConfig || defaultStyle;
 
 /* Los estudios del lote que aún no son capa del mapa («lote:c1») se resuelven con el mismo formato de ficha */
 export const entryById = id => layers.entries.find(e => e.id === id) || studyEntry(id);
@@ -35,8 +94,10 @@ export function registerDatasets() {
     layers.entries.push({
       id: def.id, kind: 'dataset', group: 'pruebas', name: def.name, visible: def.visible, loading: false, error: null,
       sym: def.sym, def: markRaw(def), metaRecord: { ...def.meta }, geojson: null, count: 0, edited: false, hidden: false,
-      olLayer: markRaw(createVectorLayer({ id: def.id, zIndex: def.zIndex, visible: def.visible, style: f => vectorStyle(def.style(f.getProperties())) }))
+      styleConfig: savedStyles?.[def.id] ? cleanStyle(savedStyles[def.id]) : null, olLayer: markRaw(createVectorLayer({ id: def.id, zIndex: def.zIndex, visible: def.visible, style: () => null }))
     });
+    const e = layers.entries[layers.entries.length - 1];
+    e.olLayer.setStyle(f => layerStyle(e, f.getProperties()));
   });
   /* Cambios que un administrador hizo antes en este navegador */
   const edits = store.get(EDITS_KEY, {});
@@ -76,11 +137,13 @@ function publishedEntry(c) {
     tip: p => { const k = Object.keys(p).find(x => x !== 'geometry' && /nom|name|municipio|clave|tipo|id/i.test(x)) || Object.keys(p).find(x => x !== 'geometry'); return k ? `${k}: ${p[k]}` : c.nombre; },
     meta: publishedMeta(c)
   };
-  return {
+  const e = {
     id: def.id, kind: 'dataset', remote: true, group: 'publicadas', name: def.name, visible: false, loading: false, error: null,
     sym: def.sym, def: markRaw(def), metaRecord: { ...def.meta }, geojson: null, count: c.entidades || 0, edited: false, hidden: false,
-    olLayer: markRaw(createVectorLayer({ id: def.id, zIndex: def.zIndex, visible: false, style: f => vectorStyle(def.style(f.getProperties()), color) }))
+    styleConfig: c.simbologia || savedStyles?.[def.id] ? cleanStyle(c.simbologia || savedStyles[def.id]) : null, olLayer: markRaw(createVectorLayer({ id: def.id, zIndex: def.zIndex, visible: false, style: () => null }))
   };
+  e.olLayer.setStyle(f => layerStyle(e, f.getProperties()));
+  return e;
 }
 
 /* Las peticiones se encadenan: iniciar sesión mientras se pide la lista no duplica capas */
@@ -219,6 +282,7 @@ export function loadDataset(id) {
       fillSource(id, e.olLayer, gj);
       e.geojson = markRaw(gj);
       e.count = gj.features.length;
+      e.olLayer.setStyle(f => layerStyle(e, f.getProperties()));
       const fields = Object.entries(gj.features[0]?.properties || {});
       e.metaRecord.attrs = fields.map(([k, v]) => [k, typeof v === 'number' ? (Number.isInteger(v) ? 'Entero' : 'Decimal') : 'Texto', 'Campo del archivo original']);
     } catch (err) {
@@ -270,6 +334,28 @@ export function moveLayer(id, dir) {
 export function selectLayer(id) {
   layers.selected = id;
   layers.feature = null;
+}
+
+export async function saveLayerStyle(id, values) {
+  const e = entryById(id);
+  if (!e) return false;
+  const config = cleanStyle(values);
+  e.styleConfig = config;
+  e.sym = config.mode === 'density'
+    ? { t: 'ramp', ramp: DENSITY_RAMPS }
+    : { ...(e.sym || {}), c: config.color, f: `${config.fillColor}55` };
+  persistStyle(id, config);
+  e.olLayer.setStyle(f => layerStyle(e, f.getProperties()));
+  if (e.remote && hasApi()) {
+    try {
+      await api(`/capas/${encodeURIComponent(id.slice(4))}/estilo`, { method: 'PUT', json: { simbologia: config } });
+    } catch (err) {
+      showToast('error', 'Estilo guardado solo localmente', err.message);
+      return false;
+    }
+  }
+  showToast('success', 'Simbología actualizada', e.remote ? 'El estilo quedó guardado para la capa publicada.' : 'Se conservará en este navegador.');
+  return true;
 }
 
 /* Tras una acción del usuario, abre el panel de propiedades en la pestaña indicada */
@@ -339,16 +425,18 @@ export function addSessionLayer(name, geojson, metaRecord, studyId = null) {
   const color = PALETTE[(sessionCounter - 1) % PALETTE.length];
   const types = new Set(geojson.features.map(f => f.geometry?.type));
   const t = [...types].some(g => /Polygon/.test(g)) ? 'poly' : [...types].some(g => /Line/.test(g)) ? 'line' : 'point';
-  const style = () => vectorStyle({ color, weight: 2, fillColor: color, fillOpacity: 0.22 }, color);
-  const layer = createVectorLayer({ id, zIndex: SESSION_Z + sessionCounter, style });
+  const styleConfig = cleanStyle({ color, fillColor: color, weight: 2, fillOpacity: 0.22 });
+  const layer = createVectorLayer({ id, zIndex: SESSION_Z + sessionCounter, style: () => null });
   fillSource(id, layer, geojson);
   addLayer(layer);
   const ext = transformExtent(layer.getSource().getExtent(), 'EPSG:3857', 'EPSG:4326'); // [oeste, sur, este, norte]
   metaRecord.bbox = [ext[1], ext[3], ext[0], ext[2]];
   layers.entries.push({
     id, kind: 'session', group: 'sesion', name, visible: true, loading: false, error: null,
-    sym: { t, c: color, f: `${color}38` }, metaRecord, studyId, geojson: markRaw(geojson), count: geojson.features.length, olLayer: markRaw(layer)
+    sym: { t, c: color, f: `${color}38` }, metaRecord, studyId, geojson: markRaw(geojson), count: geojson.features.length, styleConfig, olLayer: markRaw(layer)
   });
+  const e = layers.entries[layers.entries.length - 1];
+  layer.setStyle(f => layerStyle(e, f.getProperties()));
   const k = layers.collapsed.indexOf('sesion');
   if (k >= 0) layers.collapsed.splice(k, 1);
   restackSession();

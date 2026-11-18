@@ -3,7 +3,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import Icon from './Icon.vue';
 import KeyValues from './KeyValues.vue';
 import { ui, setDock } from '../stores/ui.js';
-import { layers, entryById, showLayerInfo, zoomToLayer, exportMeta, copyCitation } from '../stores/layers.js';
+import { layers, entryById, showLayerInfo, zoomToLayer, exportMeta, copyCitation, styleConfigOf, styleFields, saveLayerStyle } from '../stores/layers.js';
 import { fmtDate } from '../lib/format.js';
 import { moveInk, tabKeys, useSheet } from '../lib/ui-helpers.js';
 
@@ -11,13 +11,24 @@ const dock = ref(null);
 const tabsEl = ref(null);
 const entering = ref(null);
 const sheet = useSheet('right', () => dock.value);
-const TABS = [['info', 'Información'], ['attrs', 'Atributos'], ['meta', 'Metadatos']];
+const TABS = [['info', 'Información'], ['style', 'Simbología'], ['attrs', 'Atributos'], ['meta', 'Metadatos']];
 
 const e = computed(() => entryById(layers.selected));
 const m = computed(() => e.value?.metaRecord);
 const f = computed(() => layers.feature?.layer === layers.selected ? layers.feature : null);
 const access = computed(() => m.value?.access || (m.value?.estatus === 'Completo' ? 'Pública' : 'Interna'));
 const statusClass = computed(() => ['Completo', 'Publicada'].includes(m.value?.estatus) ? 'badge-ok' : 'badge-warn');
+const styleDraft = ref({ ...styleConfigOf(e.value) });
+const numericFields = computed(() => styleFields(e.value));
+const styleSaving = ref(false);
+watch(() => e.value?.id, () => { styleDraft.value = { ...styleConfigOf(e.value) }; });
+watch(() => styleDraft.value.mode, mode => { if (mode === 'density' && !styleDraft.value.field) styleDraft.value.field = numericFields.value[0] || ''; });
+async function applyStyle() {
+  if (!e.value) return;
+  styleSaving.value = true;
+  await saveLayerStyle(e.value.id, styleDraft.value);
+  styleSaving.value = false;
+}
 
 function setTab(t) { layers.tab = t; }
 watch(() => layers.tab, t => {
@@ -83,6 +94,53 @@ function close() {
             <button type="button" class="btn btn-secondary btn-sm" @click="showLayerInfo(e.id)"><Icon name="file-text" />Ficha completa</button>
             <button type="button" class="btn btn-quiet btn-sm" @click="zoomToLayer(e.id)"><Icon name="scan" />Acercar</button>
           </div>
+        </div>
+
+        <!-- Atributos -->
+        <div v-show="layers.tab === 'style'" id="side-style" class="tabpanel" :class="{ 'is-entering': entering === 'style' }" role="tabpanel" aria-labelledby="tab-style">
+          <h3 class="prop-title">Simbología</h3>
+          <p class="prop-desc">Cambia cómo se dibuja la capa, como en QGIS. El archivo y sus atributos no se modifican.</p>
+          <div class="field">
+            <label for="styleMode">Modo de representación</label>
+            <select id="styleMode" v-model="styleDraft.mode" class="select">
+              <option value="single">Símbolo único</option>
+              <option value="density" :disabled="!numericFields.length">Graduado por atributo (densidad)</option>
+            </select>
+          </div>
+          <div v-if="styleDraft.mode === 'density'" class="field">
+            <label for="styleField">Campo numérico</label>
+            <select id="styleField" v-model="styleDraft.field" class="select">
+              <option v-for="field in numericFields" :key="field" :value="field">{{ field }}</option>
+            </select>
+            <span class="hint">Los valores bajos usan tonos claros y los altos tonos oscuros, como una capa graduada de QGIS.</span>
+          </div>
+          <div v-if="styleDraft.mode === 'density'" class="grid2">
+            <div class="field">
+              <label for="styleClassification">Clasificación</label>
+              <select id="styleClassification" v-model="styleDraft.classification" class="select">
+                <option value="equal">Intervalo igual</option>
+                <option value="quantile">Cuantiles</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="styleClasses">Clases</label>
+              <select id="styleClasses" v-model.number="styleDraft.classes" class="select">
+                <option :value="3">3</option><option :value="4">4</option><option :value="5">5</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label for="styleColor">Color del borde</label><input id="styleColor" v-model="styleDraft.color" class="input" type="color"></div>
+            <div class="field"><label for="styleFill">Color del relleno</label><input id="styleFill" v-model="styleDraft.fillColor" class="input" type="color" :disabled="styleDraft.mode === 'density'"></div>
+          </div>
+          <div class="field"><label for="styleWeight">Grosor del borde <output>{{ styleDraft.weight }} px</output></label><input id="styleWeight" v-model.number="styleDraft.weight" type="range" min="0.5" max="8" step="0.5"></div>
+          <div class="field"><label for="styleOpacity">Opacidad del borde <output>{{ Math.round(styleDraft.opacity * 100) }}%</output></label><input id="styleOpacity" v-model.number="styleDraft.opacity" type="range" min="0" max="1" step="0.05"></div>
+          <div class="field"><label for="styleFillOpacity">Opacidad del relleno <output>{{ Math.round(styleDraft.fillOpacity * 100) }}%</output></label><input id="styleFillOpacity" v-model.number="styleDraft.fillOpacity" type="range" min="0" max="1" step="0.05"></div>
+          <div class="field"><label for="stylePointRadius">Tamaño de puntos <output>{{ styleDraft.pointRadius }} px</output></label><input id="stylePointRadius" v-model.number="styleDraft.pointRadius" type="range" min="2" max="20" step="1"></div>
+          <div class="prop-actions">
+            <button type="button" class="btn btn-primary btn-sm" :disabled="styleSaving" @click="applyStyle"><Icon name="check" />{{ styleSaving ? 'Guardando…' : 'Aplicar simbología' }}</button>
+          </div>
+          <p class="hint">Las capas locales se guardan en este navegador. Las publicadas también se envían al servidor cuando la API de estilos está disponible.</p>
         </div>
 
         <!-- Atributos -->

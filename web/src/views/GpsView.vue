@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue';
+import { ref, reactive, computed, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import GpsPickerMap from '../components/GpsPickerMap.vue';
@@ -10,7 +10,7 @@ import {
 import { focusGpsPoint, showAllGps } from '../stores/map.js';
 import { showToast } from '../stores/ui.js';
 import { fmtDay } from '../lib/format.js';
-import { formatCoord } from '../lib/geo.js';
+import { formatCoord, fromUTM, toUTM } from '../lib/geo.js';
 
 const router = useRouter();
 const photoEl = ref(null);
@@ -20,19 +20,68 @@ const over = ref(false);
 const saving = ref(false);
 const TYPES = ['Muestra de suelo', 'Muestra de agua', 'Punto de referencia', 'Inicio de transecto', 'Fin de transecto', 'Observación de fauna', 'Observación de flora', 'Punto de control'];
 const SOURCES = { mapa: 'Tomada del mapa', dispositivo: 'Ubicación de este dispositivo', punto: 'Coordenadas del punto en edición', manual: 'Escrita a mano', inicial: 'Valor de ejemplo: elige el punto en el mapa o escríbelo' };
+const coordMode = ref('wgs84');
+const coordInput = reactive({ x: '', y: '' });
+const coordXLabel = computed(() => coordMode.value === 'wgs84' ? 'Longitud' : 'Este (X, metros)');
+const coordYLabel = computed(() => coordMode.value === 'wgs84' ? 'Latitud' : 'Norte (Y, metros)');
+const coordHelp = computed(() => coordMode.value === 'wgs84'
+  ? 'Latitud y longitud en grados decimales. Ejemplo: 19.84530, -90.52283.'
+  : `Este (X) y Norte (Y) en metros, WGS 84 / ${coordMode.value === 'utm15' ? 'UTM 15N' : 'UTM 16N'}.`);
 
 const reversed = computed(() => gps.points.slice().reverse());
 const editingPoint = computed(() => gps.points.find(p => p.id === gps.editing) || null);
 const coordOk = computed(() => !gps.errors.lat && !gps.errors.lon && gps.form.lat !== '' && gps.form.lon !== '');
 const coordLabel = computed(() => {
   const lat = Number(String(gps.form.lat).replace(',', '.')), lon = Number(String(gps.form.lon).replace(',', '.'));
-  return Number.isFinite(lat) && Number.isFinite(lon) ? formatCoord(lat, lon, 'wgs84') : '';
+  return Number.isFinite(lat) && Number.isFinite(lon) ? formatCoord(lat, lon, coordMode.value) : '';
 });
 
 watch(() => gps.photoReset, () => { if (photoEl.value) photoEl.value.value = ''; });
+function syncCoordInput() {
+  const lat = Number(gps.form.lat), lon = Number(gps.form.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+  if (coordMode.value === 'wgs84') {
+    coordInput.x = String(lon);
+    coordInput.y = String(lat);
+  } else {
+    const p = toUTM(lat, lon, coordMode.value === 'utm15' ? 15 : 16);
+    coordInput.x = p.x.toFixed(2);
+    coordInput.y = p.y.toFixed(2);
+  }
+}
+watch(coordMode, syncCoordInput, { immediate: true });
+watch(() => [gps.form.lat, gps.form.lon], () => { if (gps.source !== 'manual') syncCoordInput(); });
+function convertCoordInput() {
+  const x = Number(String(coordInput.x).replace(',', '.')), y = Number(String(coordInput.y).replace(',', '.'));
+  if (!Number.isFinite(x)) {
+    gps.errors.lon = coordMode.value === 'wgs84' ? 'Escribe una longitud válida.' : 'Escribe un Este (X) válido en metros.';
+  }
+  if (!Number.isFinite(y)) {
+    gps.errors.lat = coordMode.value === 'wgs84' ? 'Escribe una latitud válida.' : 'Escribe un Norte (Y) válido en metros.';
+  }
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  if (coordMode.value === 'wgs84') {
+    gps.form.lon = String(x);
+    gps.form.lat = String(y);
+  } else {
+    if (x < 100000 || x > 900000) {
+      gps.errors.lon = 'El Este (X) debe estar entre 100,000 y 900,000 metros.';
+      return false;
+    }
+    if (y < 0 || y > 10000000) {
+      gps.errors.lat = 'El Norte (Y) debe estar entre 0 y 10,000,000 metros.';
+      return false;
+    }
+    const p = fromUTM(x, y, coordMode.value === 'utm15' ? 15 : 16);
+    gps.form.lat = String(p.lat);
+    gps.form.lon = String(p.lon);
+  }
+  validateCoords();
+  return true;
+}
 
-function onCoordInput() { gps.source = 'manual'; }
-function onCoordBlur(axis) { if (gps.errors[axis] || String(gps.form[axis]).trim()) validateCoords(); }
+function onCoordInput() { gps.source = 'manual'; convertCoordInput(); }
+function onCoordBlur() { convertCoordInput(); }
 async function save() {
   saving.value = true;
   const ok = await addPoint();
@@ -46,7 +95,7 @@ function startEdit(id) {
     formEl.value?.querySelector('#manualName')?.focus({ preventScroll: true });
   });
 }
-function onPick(lat, lon) { setManualCoordinates(lat, lon, 'mapa'); }
+function onPick(lat, lon) { setManualCoordinates(lat, lon, 'mapa'); syncCoordInput(); }
 function onSelect(id) { gps.selected = gps.selected === id ? null : id; nextTick(() => document.querySelector(`[data-point="${id}"]`)?.scrollIntoView({ block: 'nearest' })); }
 
 function onExcel(file) { importExcel(file).finally(() => { if (excelEl.value) excelEl.value.value = ''; }); }
@@ -66,7 +115,7 @@ function showAll() {
         <div class="page-head">
           <div>
             <h1 id="gpsTitle">Captura de puntos de campo</h1>
-            <p>Registra observaciones con coordenadas WGS 84 en grados decimales: elige el punto en el mapa, usa la ubicación del dispositivo o escríbelo. {{ REMOTE ? 'Los puntos se guardan en el servidor y los ve todo el equipo con sesión.' : 'Sin servidor de publicación, los puntos se guardan solo en este navegador.' }}</p>
+            <p>Registra observaciones en WGS 84 con grados decimales o UTM 15N/16N. El sistema guarda internamente latitud y longitud para que todos los puntos se vean igual en el mapa. {{ REMOTE ? 'Los puntos se guardan en el servidor y los ve todo el equipo con sesión.' : 'Sin servidor de publicación, los puntos se guardan solo en este navegador.' }}</p>
           </div>
         </div>
 
@@ -83,18 +132,27 @@ function showAll() {
             <div class="panel-body stack">
               <fieldset class="coord-set">
                 <legend>Ubicación <span class="req" aria-hidden="true">*</span></legend>
+                <div class="field">
+                  <label for="coordMode">Formato de captura</label>
+                  <select id="coordMode" v-model="coordMode" class="select">
+                    <option value="wgs84">WGS 84 · grados decimales</option>
+                    <option value="utm15">WGS 84 / UTM 15N · metros (96° O–90° O)</option>
+                    <option value="utm16">WGS 84 / UTM 16N · metros (90° O–84° O)</option>
+                  </select>
+                  <span id="coordModeHint" class="hint">{{ coordHelp }}</span>
+                </div>
                 <div class="grid2">
                   <div class="field">
-                    <label for="manualLat">Latitud</label>
-                    <input id="manualLat" v-model="gps.form.lat" class="input mono" type="number" step="any" inputmode="decimal" :min="LAT[0]" :max="LAT[1]" required
-                      :aria-invalid="String(!!gps.errors.lat)" :aria-describedby="gps.errors.lat ? 'latErr' : 'coordHint'" @input="onCoordInput" @blur="onCoordBlur('lat')">
-                    <p v-if="gps.errors.lat" id="latErr" class="error-text"><Icon name="alert-circle" />{{ gps.errors.lat }}</p>
+                    <label for="manualX">{{ coordXLabel }}</label>
+                    <input id="manualX" v-model="coordInput.x" class="input mono" type="number" step="any" inputmode="decimal" :min="coordMode === 'wgs84' ? LON[0] : 100000" :max="coordMode === 'wgs84' ? LON[1] : 900000" required
+                      :aria-invalid="String(!!gps.errors.lon)" :aria-describedby="gps.errors.lon ? 'lonErr' : 'coordHint'" @input="onCoordInput" @blur="onCoordBlur">
+                    <p v-if="gps.errors.lon" id="lonErr" class="error-text"><Icon name="alert-circle" />{{ gps.errors.lon }}</p>
                   </div>
                   <div class="field">
-                    <label for="manualLon">Longitud</label>
-                    <input id="manualLon" v-model="gps.form.lon" class="input mono" type="number" step="any" :min="LON[0]" :max="LON[1]" required
-                      :aria-invalid="String(!!gps.errors.lon)" :aria-describedby="gps.errors.lon ? 'lonErr' : 'coordHint'" @input="onCoordInput" @blur="onCoordBlur('lon')">
-                    <p v-if="gps.errors.lon" id="lonErr" class="error-text"><Icon name="alert-circle" />{{ gps.errors.lon }}</p>
+                    <label for="manualY">{{ coordYLabel }}</label>
+                    <input id="manualY" v-model="coordInput.y" class="input mono" type="number" step="any" inputmode="decimal" :min="coordMode === 'wgs84' ? LAT[0] : 0" :max="coordMode === 'wgs84' ? LAT[1] : 10000000" required
+                      :aria-invalid="String(!!gps.errors.lat)" :aria-describedby="gps.errors.lat ? 'latErr' : 'coordHint'" @input="onCoordInput" @blur="onCoordBlur">
+                    <p v-if="gps.errors.lat" id="latErr" class="error-text"><Icon name="alert-circle" />{{ gps.errors.lat }}</p>
                   </div>
                 </div>
                 <p id="coordHint" class="coord-hint">
