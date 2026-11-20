@@ -67,7 +67,7 @@ function submit() {
   const title = String(form.sTitle).trim() || heading.value;
   if (dsId.value) {
     if (!saveDatasetMeta(dsId.value, form)) return;
-    showToast('success', 'Ficha guardada', `«${title}». Es un conjunto de prueba: los cambios se guardan solo en este navegador.`);
+    showToast('success', 'Ficha guardada', `«${title}».`);
     dlg.value.close('ok');
     return;
   }
@@ -87,7 +87,7 @@ function submit() {
       <div class="dlg-head">
         <div>
           <h2 id="studyDlgTitle">{{ dsId ? 'Ficha de' : 'Estudio de' }} «{{ heading }}»</h2>
-          <p v-if="dsId">Conjunto de prueba del catálogo (perfil basado en ISO 19115).</p>
+          <p v-if="dsId">Ficha de metadatos (perfil basado en ISO 19115).</p>
           <p v-else>Cada capa del lote tiene su propio estudio. Puedes guardarlo a medias; los campos con * son obligatorios para enviar a revisión (perfil basado en ISO 19115).</p>
         </div>
         <button type="button" class="icon-btn" data-close aria-label="Cerrar"><Icon name="x" /></button>
@@ -95,7 +95,7 @@ function submit() {
       <div class="dlg-body stack">
         <div v-if="dsId" class="callout info">
           <Icon name="info" />
-          <span>Es un conjunto de prueba: los cambios se guardan <b>solo en este navegador</b> y no cambian el archivo de datos. Los estudios del CEDESU se publican desde Carga y Revisión.
+          <span>Ficha de metadatos de la capa. Los cambios se guardan en el catálogo.
             <template v-if="entry?.edited"> Esta ficha ya tiene cambios. <button type="button" class="link-btn" @click="restore">Restablecer la original</button></template>
           </span>
         </div>

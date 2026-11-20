@@ -33,7 +33,7 @@ function build(text) {
   PLACES.filter(p => norm(p[0]).includes(nq) || norm(p[1]).includes(nq)).slice(0, 5)
     .forEach(p => out.push({ group: 'Lugares', icon: 'map-pin', t: p[0], s: `Municipio de ${p[1]} · coordenadas aproximadas`, run: () => goTo(p[2], p[3], 12, p[0]) }));
   layers.entries.filter(l => !l.hidden && norm(l.name).includes(nq)).slice(0, 5)
-    .forEach(l => out.push({ group: 'Capas', icon: 'layers', t: l.name, s: l.group === 'pruebas' ? 'Datos de prueba (QGIS)' : l.remote ? 'Capa publicada' : 'Capa de sesión', run: () => { router.push('/'); showProps(l.id, 'info'); } }));
+    .forEach(l => out.push({ group: 'Capas', icon: 'layers', t: l.name, s: l.group === 'pruebas' ? 'Capa base' : l.remote ? 'Capa publicada' : 'Capa de sesión', run: () => { router.push('/'); showProps(l.id, 'info'); } }));
   layers.entries.filter(e => !e.hidden && e.geojson && e.def?.label).forEach(e => {
     const label = e.def.label;
     let n = 0;
@@ -44,7 +44,7 @@ function build(text) {
     });
   });
   studyList().filter(s => norm(s.title).includes(nq) || norm(s.theme).includes(nq)).slice(0, 4)
-    .forEach(s => out.push({ group: 'Estudios', icon: 'book-open', t: s.title, s: `${s.theme} · ${s.published ? 'publicado' : 'datos de prueba'}`, run: () => showLayerInfo(s.id) }));
+    .forEach(s => out.push({ group: 'Estudios', icon: 'book-open', t: s.title, s: `${s.theme} · ${s.published ? 'publicado' : 'catálogo'}`, run: () => showLayerInfo(s.id) }));
   return out;
 }
 
@@ -95,7 +95,7 @@ const rows = computed(() => {
       <Icon name="search" />
       <input id="globalSearch" ref="input" v-model="q" type="search" autocomplete="off" spellcheck="false"
         :placeholder="placeholder" role="combobox" :aria-expanded="String(open)" aria-controls="searchResults"
-        aria-autocomplete="list" aria-label="Buscar en el geoportal" :aria-activedescendant="open && active >= 0 ? `sr-${active}` : null"
+        aria-autocomplete="list" aria-label="Buscar en DeltaMap-CEDESU" :aria-activedescendant="open && active >= 0 ? `sr-${active}` : null"
         @input="onInput" @focus="onFocus" @keydown="onKey" @blur="onBlur">
       <span class="kbd" aria-hidden="true">/</span>
     </div>

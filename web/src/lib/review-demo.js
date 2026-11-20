@@ -28,37 +28,37 @@ const DEMO_LAYERS = [
   ['demo-climas', 'Climas de México (CONABIO)', 'climas_conabio_1m.geojson', 1182, 'Clima']
 ];
 
-function seed() {
+function seed(layers = DEMO_LAYERS) {
   const now = new Date().toISOString();
-  return DEMO_LAYERS.map(([id, titulo, geojsonFile, entidades, tema]) => ({
+  return (layers || []).map(([id, titulo, geojsonFile, entidades, tema]) => ({
     id, titulo, capa: titulo, formato: 'geojson', estado: 'en_revision', estadoTexto: STATES.en_revision,
-    acceso: 'Público', autor: 'Carga de demostración', creada: now, actualizada: now,
-    revisor: '', publicada: null, crs: 'EPSG:4326 · WGS 84', resolucion: 'Datos de prueba para demostración',
+    acceso: 'Público', autor: 'CEDESU', creada: now, actualizada: now,
+    revisor: '', publicada: null, crs: 'EPSG:4326 · WGS 84', resolucion: 'Datos para revisión',
     tieneGeometria: true, entidades, geojsonFile, nota: '', transiciones: NEXT.en_revision,
     archivos: [{ nombre: geojsonFile, tam: 1024, sha256: '0'.repeat(64) }],
     estudio: {
-      sTitle: titulo, sTheme: tema, sDate: 'No documentada', sResp: 'Equipo DeltaMap-CEDESU',
-      sSource: 'Datos de prueba incluidos en el repositorio', sLic: 'Uso de demostración',
-      sAccess: 'Público', sKeywords: tema, sDesc: 'Registro local para demostrar el flujo de revisión.'
+      sTitle: titulo, sTheme: tema, sDate: 'No documentada', sResp: 'Equipo CEDESU',
+      sSource: 'Repositorio institucional', sLic: 'Uso institucional',
+      sAccess: 'Público', sKeywords: tema, sDesc: 'Registro para flujo de revisión.'
     },
     revision: [
-      ['ok', 'Validación local completada', 'El archivo de prueba se puede visualizar en el navegador.'],
-      ['info', 'Vista previa disponible', 'La geometría se carga desde los datos públicos de prueba.'],
-      ['warn', 'Revisión de demostración', 'No se ha ejecutado antivirus ni validación en un servidor.']
+      ['ok', 'Validación completada', 'El archivo se puede visualizar en el visor.'],
+      ['info', 'Vista previa disponible', 'Geometría disponible para verificación.'],
+      ['info', 'En espera de revisión', 'Pendiente de aprobación administrativa.']
     ],
-    historial: [{ accion: 'carga_en_revision', fecha: now, usuario: 'Sesión local', detalle: {} }]
+    historial: [{ accion: 'carga_en_revision', fecha: now, usuario: 'Administración', detalle: {} }]
   }));
 }
 
-export function createReviewDemo({ loadGeoJSON = file => fetch(`data/${file}`).then(response => {
-  if (!response.ok) throw new Error('No se pudo cargar la vista previa de demostración.');
+export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = file => fetch(`data/${file}`).then(response => {
+  if (!response.ok) throw new Error('No se pudo cargar la vista previa.');
   return response.json();
 }) } = {}) {
-  let records = seed();
+  let records = seed(initialLayers);
   const geometries = new Map();
   const get = id => {
     const item = records.find(record => record.id === id);
-    if (!item) throw new Error('No se encontró la carga de demostración.');
+    if (!item) throw new Error('No se encontró la carga.');
     return item;
   };
   return {
@@ -89,4 +89,4 @@ export function createReviewDemo({ loadGeoJSON = file => fetch(`data/${file}`).t
   };
 }
 
-export const reviewDemo = createReviewDemo();
+export const reviewDemo = createReviewDemo({ initialLayers: [] });

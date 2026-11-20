@@ -50,13 +50,8 @@ function reset() { q.value = ''; theme.value = ''; year.value = ''; }
         <div class="page-head">
           <div>
             <h1 id="catTitle">Catálogo de estudios</h1>
-            <p>Estudios y capas disponibles en el geoportal, con su procedencia, fecha y sistema de referencia. Abre la ficha para consultar los metadatos completos.</p>
+            <p>Estudios y capas disponibles en DeltaMap-CEDESU, con su procedencia, fecha y sistema de referencia. Abre la ficha para consultar los metadatos completos.</p>
           </div>
-        </div>
-        <div class="callout info catalog-note" role="note">
-          <Icon name="info" />
-          <span v-if="publishedCount">Los conjuntos marcados <b>Publicada</b> son estudios del CEDESU aprobados en la pantalla Revisión; los demás son <b>datos de prueba</b> convertidos desde QGIS.</span>
-          <span v-else>Por ahora solo hay <b>datos de prueba</b> convertidos desde QGIS. Los estudios del CEDESU aparecerán aquí cuando se aprueben y publiquen en la pantalla Revisión.</span>
         </div>
         <div v-if="loteList.length" class="callout warn catalog-note" role="note">
           <Icon name="alert-triangle" />
@@ -64,7 +59,7 @@ function reset() { q.value = ''; theme.value = ''; year.value = ''; }
         </div>
         <div v-if="session.admin && hiddenCount" class="callout info catalog-note" role="note">
           <Icon name="info" />
-          <span>{{ hiddenCount === 1 ? 'Hay 1 conjunto de prueba eliminado' : `Hay ${hiddenCount} conjuntos de prueba eliminados` }} del catálogo en este navegador. <button type="button" class="link-btn" @click="restoreDatasets">Restaurar</button></span>
+          <span>{{ hiddenCount === 1 ? 'Hay 1 conjunto eliminado' : `Hay ${hiddenCount} conjuntos eliminados` }} del catálogo en este navegador. <button type="button" class="link-btn" @click="restoreDatasets">Restaurar</button></span>
         </div>
         <div class="catalog-filters">
           <div class="input-search">
@@ -80,7 +75,7 @@ function reset() { q.value = ''; theme.value = ''; year.value = ''; }
             <div class="cat-headrow" aria-hidden="true"><span>Conjunto de datos</span><span>Tema</span><span>Sistema de referencia</span><span></span></div>
             <article v-for="s in list" :key="s.id" class="cat-row" :data-study="s.id">
               <div class="cat-main">
-                <h2>{{ s.title }} <span v-if="s.lote" class="badge badge-warn">Sin publicar · solo esta sesión</span><span v-else-if="s.published" class="badge badge-ok">Publicada</span><span v-else class="badge badge-info">Datos de prueba</span><span v-if="s.edited" class="badge">Editado en este navegador</span></h2>
+                <h2>{{ s.title }} <span v-if="s.lote" class="badge badge-warn">Sin publicar · solo esta sesión</span><span v-else-if="s.published" class="badge badge-ok">Publicada</span><span v-if="s.edited" class="badge">Editado en este navegador</span></h2>
                 <p class="desc" :title="s.desc && s.desc.length > 220 ? s.desc : null">{{ s.desc }}</p>
                 <div class="facts">
                   <span v-if="s.date"><Icon name="calendar" class="ic-14" />{{ fmtDate(s.date) }}</span>

@@ -87,8 +87,8 @@ function sessionClick(e) {
         <img class="logo-cedesu" :src="logoCedesu" width="30" height="30" alt="">
       </span>
       <span class="brand-text">
-        <span class="brand-name">CEDESU</span>
-        <span class="brand-space">Geoportal · <b>Cartografía de Campeche</b></span>
+        <span class="brand-name">DeltaMap</span>
+        <span class="brand-space">CEDESU · <b>Cartografía de Campeche</b></span>
       </span>
     </a>
 

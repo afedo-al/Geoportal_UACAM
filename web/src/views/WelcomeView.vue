@@ -10,23 +10,23 @@ const logoCedesu = `${import.meta.env.BASE_URL}img/cedesu.webp`;
 const herramientas = [
   {
     icono: 'map',
-    titulo: 'Mapa interactivo',
-    descripcion: 'Explora información geográfica y consulta capas cartográficas.'
+    titulo: 'Visor cartográfico',
+    descripcion: 'Navega por el territorio, activa capas temáticas y visualiza información sobre mapas base.'
   },
   {
     icono: 'book-open',
     titulo: 'Catálogo de estudios',
-    descripcion: 'Consulta estudios, documentos y metadatos disponibles.'
+    descripcion: 'Consulta investigaciones, proyectos territoriales y fichas de metadatos normalizados.'
   },
   {
-    icono: 'map-pin',
-    titulo: 'Captura de coordenadas',
-    descripcion: 'Registra puntos de campo mediante GPS o captura manual.'
+    icono: 'search',
+    titulo: 'Búsqueda y localización',
+    descripcion: 'Encuentra rápidamente municipios, localidades de Campeche y coordenadas geográficas.'
   },
   {
-    icono: 'shield-check',
-    titulo: 'Gestión de información',
-    descripcion: 'Revisa y administra los datos geográficos antes de publicarlos.'
+    icono: 'crosshair',
+    titulo: 'Consulta y medición',
+    descripcion: 'Identifica atributos de los elementos del mapa y calcula distancias y áreas en tiempo real.'
   }
 ];
 
@@ -53,10 +53,10 @@ function entrarAlMapa() {
       <header class="inicio-hero">
         <div class="inicio-presentacion">
           <span class="inicio-etiqueta">
-            GEO PORTAL · CEDESU · UACAM
+            DELTAMAP-CEDESU · UACAM
           </span>
 
-          <h1>Bienvenido al Geoportal CEDESU</h1>
+          <h1>Bienvenido a DeltaMap-CEDESU</h1>
 
           <p class="inicio-subtitulo">
             Información geográfica para conocer,
@@ -64,7 +64,7 @@ function entrarAlMapa() {
           </p>
 
           <p>
-            Plataforma de consulta y gestión de información
+            Plataforma web interactiva de consulta y gestión de información
             geoespacial desarrollada en colaboración
             con la Universidad Autónoma de Campeche.
           </p>
@@ -100,15 +100,15 @@ function entrarAlMapa() {
 
       <!-- FINALIDAD -->
       <section class="inicio-seccion">
-        <span class="inicio-numero">01 · EL PROYECTO</span>
-        <h2>¿Cuál es la finalidad de la plataforma?</h2>
+        <span class="inicio-kicker">Propósito institucional</span>
+        <h2>Finalidad de la plataforma</h2>
 
         <p>
-          El Geoportal CEDESU tiene como finalidad centralizar,
-          organizar, visualizar y gestionar la información
+          DeltaMap-CEDESU tiene como finalidad centralizar,
+          organizar, visualizar y administrar la información
           geográfica relacionada con los estudios y proyectos
           de investigación del Centro de Estudios de Desarrollo
-          Sustentable.
+          Sustentable y Aprovechamiento de la Vida Silvestre.
         </p>
 
         <p>
@@ -121,8 +121,8 @@ function entrarAlMapa() {
 
       <!-- HERRAMIENTAS -->
       <section class="inicio-seccion">
-        <span class="inicio-numero">02 · FUNCIONALIDADES</span>
-        <h2>Explora las herramientas disponibles</h2>
+        <span class="inicio-kicker">Herramientas y servicios</span>
+        <h2>Capacidades disponibles para consulta</h2>
 
         <div class="inicio-grid">
           <article
@@ -138,18 +138,12 @@ function entrarAlMapa() {
             <p>{{ herramienta.descripcion }}</p>
           </article>
         </div>
-
-        <p class="inicio-aviso">
-          La plataforma se encuentra en desarrollo.
-          Algunas funcionalidades requieren la implementación
-          del servidor institucional.
-        </p>
       </section>
 
       <!-- COLABORADORES -->
       <section class="inicio-seccion">
-        <span class="inicio-numero">03 · EQUIPO DE TRABAJO</span>
-        <h2>Instituciones colaboradoras</h2>
+        <span class="inicio-kicker">Alianza institucional</span>
+        <h2>Instituciones participantes</h2>
 
         <div class="inicio-grid equipo">
           <article class="inicio-tarjeta institucion">
@@ -157,7 +151,7 @@ function entrarAlMapa() {
             <div>
               <h3>Facultad de Ingeniería</h3>
               <p>Universidad Autónoma de Campeche</p>
-              <p>Desarrollo tecnológico del geoportal.</p>
+              <p>Desarrollo tecnológico de DeltaMap-CEDESU.</p>
             </div>
           </article>
 
@@ -295,11 +289,17 @@ function entrarAlMapa() {
   padding: 48px 0 0;
 }
 
-.inicio-numero {
-  color: #967431;
-  font-size: 12px;
+.inicio-kicker {
+  display: inline-block;
+  color: #17616a;
+  background: #e4f2ef;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 20px;
+  margin-bottom: 6px;
 }
 
 .inicio-seccion h2 {

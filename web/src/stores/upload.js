@@ -329,6 +329,71 @@ async function harvestStudy(it, result) {
   found.push(await readSidecar(it));
   found.filter(Boolean).forEach(info => noteInfo(it, info));
   inferTheme(it);
+  autoGenerateStudy(it);
+}
+
+/* Generación automática de la ficha de estudio institucional (perfil ISO 19115) */
+function autoGenerateStudy(it) {
+  const rec = studyById(it.id);
+  if (!rec) return;
+  const now = new Date().toISOString().slice(0, 10);
+
+  if (!rec.sTitle || rec.auto.sTitle === 'nombre del archivo') {
+    const cleanName = it.layerName.replace(/[_-]+/g, ' ').trim();
+    rec.sTitle = cleanName ? cleanName.charAt(0).toUpperCase() + cleanName.slice(1) : 'Estudio cartográfico';
+  }
+
+  if (!rec.sTheme) {
+    const fields = it.geojson ? [...new Set(it.geojson.features.slice(0, 200).flatMap(f => Object.keys(f.properties || {})))] : (it.table?.headers || []);
+    rec.sTheme = themeFromLayer(it.layerName, fields) || 'División territorial';
+    rec.auto.sTheme = 'asignado automáticamente';
+  }
+
+  if (!rec.sDate) {
+    rec.sDate = now;
+    rec.auto.sDate = 'fecha de carga';
+  }
+
+  if (!rec.sResp) {
+    rec.sResp = 'CEDESU · Universidad Autónoma de Campeche';
+    rec.auto.sResp = 'institución responsable';
+  }
+
+  if (!rec.sSource) {
+    rec.sSource = 'Centro de Estudios de Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre (CEDESU)';
+    rec.auto.sSource = 'fuente institucional';
+  }
+
+  if (!rec.sLic) {
+    rec.sLic = 'Uso restringido (solo CEDESU)';
+    rec.auto.sLic = 'licencia predeterminada';
+  }
+
+  if (!rec.sAccess) {
+    rec.sAccess = 'Pública';
+    rec.auto.sAccess = 'acceso predeterminado';
+  }
+
+  if (!rec.sDesc) {
+    const n = it.geojson?.features?.length;
+    const countText = n ? ` con ${n.toLocaleString('es-MX')} entidades espaciales` : '';
+    const crsText = it.crs ? ` en sistema de referencia ${it.crs}` : '';
+    rec.sDesc = `Capa cartográfica de ${rec.sTitle}${countText}${crsText}. Integrada y procesada en DeltaMap-CEDESU para consulta e investigación territorial.`;
+    rec.auto.sDesc = 'generada automáticamente';
+  }
+
+  if (!rec.sLineage) {
+    rec.sLineage = 'Validación de estructura vectorial, reproyección y normalización cartográfica generada por la plataforma DeltaMap-CEDESU.';
+    rec.auto.sLineage = 'generado automáticamente';
+  }
+
+  if (!rec.sKeywords) {
+    rec.sKeywords = [rec.sTitle, rec.sTheme, 'Campeche', 'CEDESU'].filter(Boolean).join(', ');
+    rec.auto.sKeywords = 'generadas automáticamente';
+  }
+
+  rec.listed = true;
+  it.checks.push(['ok', 'Ficha de estudio generada automáticamente', 'La ficha técnica (ISO 19115) se completó con metadatos del archivo e información institucional.']);
 }
 
 /* Sin metadatos que lo digan, el tema se deduce del nombre de la capa y de sus campos (queda como sugerido) */
@@ -479,6 +544,7 @@ export function confirmMapping(id) {
   it.mapping.confirmed = true;
   IngestCore.tableToGeo(it);
   rawify(it);
+  autoGenerateStudy(it);
 }
 
 /* «Ver en el mapa»: capa de sesión, visible solo en este navegador. Su ficha sale del estudio de la capa. */

@@ -339,7 +339,7 @@ function showAll() {
           <!-- Puntos -->
           <section class="panel gps-points" aria-labelledby="gpsListTitle">
             <div class="panel-head">
-              <div><h2 id="gpsListTitle">Puntos registrados</h2><p v-if="REMOTE">Guardados en el servidor del geoportal. Exporta el CSV para usarlos en otros programas.</p><p v-else>Solo en este navegador, sin sincronización. Borrar los datos del sitio los elimina: exporta el CSV para conservarlos.</p></div>
+              <div><h2 id="gpsListTitle">Puntos registrados</h2><p v-if="REMOTE">Guardados en el servidor de DeltaMap-CEDESU. Exporta el CSV para usarlos en otros programas.</p><p v-else>Solo en este navegador, sin sincronización. Borrar los datos del sitio los elimina: exporta el CSV para conservarlos.</p></div>
               <span class="badge">{{ gps.points.length }} {{ gps.points.length === 1 ? 'punto' : 'puntos' }}</span>
             </div>
             <ul v-if="gps.points.length" class="gps-list" aria-label="Puntos guardados">

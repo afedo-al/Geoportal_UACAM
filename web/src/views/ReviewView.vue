@@ -22,7 +22,7 @@ const CHECK_ICONS = { ok: 'check-circle-2', warn: 'alert-triangle', err: 'alert-
 /* Acción de cada transición: texto del botón, estilo y si pide confirmación */
 const ACTIONS = {
   aprobada: { label: 'Aprobar', icon: 'check', cls: 'btn-primary' },
-  publicada: { label: 'Publicar', icon: 'send', cls: 'btn-primary', confirm: 'La capa se mostrará en el mapa y el catálogo del geoportal según su clasificación de acceso.' },
+  publicada: { label: 'Publicar', icon: 'send', cls: 'btn-primary', confirm: 'La capa se mostrará en el mapa y el catálogo de DeltaMap-CEDESU según su clasificación de acceso.' },
   requiere_correccion: { label: 'Devolver para corrección', icon: 'rotate-ccw', cls: 'btn-secondary', nota: true },
   archivada: { label: 'Archivar', icon: 'folder-open', cls: 'btn-quiet danger', nota: true },
   en_revision: { label: 'Reabrir revisión', icon: 'rotate-ccw', cls: 'btn-secondary' }
@@ -32,7 +32,7 @@ const fmtLabel = f => FORMAT_LABEL[f] || f || '—';
 const ACCION_TEXTO = {
   acceso: 'Inició sesión', carga_recibida: 'Carga recibida en cuarentena', carga_en_revision: 'Superó la revisión automática',
   carga_rechazada: 'No superó la revisión automática', carga_aprobada: 'Aprobada', carga_devuelta: 'Devuelta para corrección',
-  capa_publicada: 'Publicada', capa_retirada: 'Retirada del geoportal', carga_archivada: 'Archivada', carga_reabierta: 'Revisión reabierta'
+  capa_publicada: 'Publicada', capa_retirada: 'Retirada de DeltaMap-CEDESU', carga_archivada: 'Archivada', carga_reabierta: 'Revisión reabierta'
 };
 
 const filter = ref('en_revision');
@@ -46,28 +46,27 @@ const nota = ref('');
 const busy = ref(false);
 const isAdmin = computed(() => session.admin?.rol === 'admin');
 const demoMode = DEMO_LOCAL && !hasApi();
-const available = computed(() => hasApi() || demoMode);
+const available = computed(() => true);
 
 const errorText = err => (err instanceof ApiError ? err.detalle : 'No se pudo conectar con el servidor.');
 const fmtDateTime = iso => (iso ? new Date(iso).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
 async function loadList() {
-  if (demoMode) {
-    const body = reviewDemo.list(filter.value);
-    list.value = body.cargas;
-    totals.value = body.totales;
-    if (!list.value.some(c => c.id === selectedId.value)) select(list.value[0]?.id || null);
+  if (hasApi()) {
+    loading.value = true;
+    try {
+      const body = await api(`/cargas${filter.value ? `?estado=${filter.value}` : ''}`);
+      list.value = body.cargas || [];
+      totals.value = body.totales || {};
+      if (!list.value.some(c => c.id === selectedId.value)) select(list.value[0]?.id || null);
+    } catch (err) { showToast('error', 'No se cargó la lista', errorText(err)); }
+    finally { loading.value = false; }
     return;
   }
-  if (!hasApi()) return;
-  loading.value = true;
-  try {
-    const body = await api(`/cargas${filter.value ? `?estado=${filter.value}` : ''}`);
-    list.value = body.cargas;
-    totals.value = body.totales;
-    if (!list.value.some(c => c.id === selectedId.value)) select(list.value[0]?.id || null);
-  } catch (err) { showToast('error', 'No se cargó la lista', errorText(err)); }
-  finally { loading.value = false; }
+  const body = reviewDemo.list(filter.value);
+  list.value = body.cargas || [];
+  totals.value = body.totales || {};
+  if (!list.value.some(c => c.id === selectedId.value)) select(list.value[0]?.id || null);
 }
 
 async function select(id) {
@@ -142,8 +141,6 @@ onMounted(loadList);
           </div>
         </div>
 
-        <div v-if="demoMode" class="callout warn"><Icon name="info" /><span>Modo demostración local: los cambios viven solo en esta pestaña y no se publican en un servidor.</span></div>
-        <div v-else-if="!available" class="callout info"><Icon name="cloud-off" /><span>Esta versión no tiene servidor de publicación configurado.</span></div>
         <template v-if="available">
           <div class="seg review-filters" role="radiogroup" aria-label="Filtrar por estado">
             <label v-for="[k, t] in FILTERS" :key="k">

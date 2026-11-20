@@ -76,7 +76,6 @@ function close() {
           <h3 class="prop-title">{{ e.name }}</h3>
           <div class="prop-sub">
             <span v-if="e.kind === 'session'" class="badge badge-info">Sesión · no publicada</span>
-            <span v-if="e.kind === 'dataset' && !e.remote" class="badge badge-info">Datos de prueba</span>
             <span v-if="m" class="badge" :class="statusClass">{{ m.estatus }}</span>
           </div>
           <p class="prop-desc">{{ m?.resumen }}</p>

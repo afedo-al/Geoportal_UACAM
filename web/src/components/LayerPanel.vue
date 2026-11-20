@@ -85,10 +85,6 @@ function clearFilter() { layers.filter = ''; filterEl.value?.focus(); }
       </div>
     </div>
     <div class="dock-body">
-      <div class="demo-note" role="note">
-        <Icon name="info" />
-        <span>Datos de prueba convertidos desde QGIS para revisar el visor. No son estudios publicados por CEDESU.</span>
-      </div>
       <div class="layer-tree">
         <div v-for="g in groups" :key="g.id" class="lgroup" :data-group="g.id" :data-collapsed="String(g.collapsed)">
           <button type="button" class="lgroup-head" :aria-expanded="String(!g.collapsed)" @click="toggleGroup(g.id)">
