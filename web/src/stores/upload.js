@@ -577,7 +577,8 @@ function syncStudy(it) {
   const rec = studyById(it.id);
   if (!rec) return;
   renameStudyLayer(rec.id, it.layerName);
-  rec.listed = ['ready', 'server', 'sending', 'sent', 'failed'].includes(it.state);
+  /* Una capa enviada a revisión deja de figurar como «Sin publicar» en el catálogo: sigue su curso en Revisión */
+  rec.listed = ['ready', 'server', 'sending', 'failed'].includes(it.state);
   rec.busy = it.state === 'sending';
   const key = `${it.state}:${it.geojson ? it.geojson.features.length : 0}:${sizeOf(it)}:${it.crs || ''}`;
   if (rec.facts.key === key) return;

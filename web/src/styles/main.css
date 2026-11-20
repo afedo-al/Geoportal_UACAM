@@ -1434,3 +1434,6 @@ input, textarea { caret-color: var(--navy-700); }
 .chip-btn > span:last-child { opacity: 0.75; font-variant-numeric: tabular-nums; }
 .chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
 .gps-xls { margin-left: var(--s-2); gap: 3px; vertical-align: middle; }
+@media (max-width: 900px) {
+  .map-hint, .map-hint.dock-open { flex-wrap: wrap; justify-content: center; text-align: center; width: calc(100% - 32px); max-width: 420px; border-radius: 16px; padding: var(--s-3); }
+}

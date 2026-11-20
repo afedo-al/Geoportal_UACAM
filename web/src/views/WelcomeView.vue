@@ -1,6 +1,6 @@
 <script setup>
-/* Inicio: portada pública de DeltaMap-CEDESU. El héroe lleva un mapa real que recorre las cabeceras
-   municipales de Campeche; el resto explica, sin datos inventados, qué se puede consultar. */
+/* Inicio: la puerta de entrada de DeltaMap-CEDESU. No es una portada: es un panel de trabajo con un mapa vivo,
+   los estudios disponibles y los accesos que le sirven a cada persona (el público o la administración). */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import OLMap from 'ol/Map.js';
@@ -11,48 +11,48 @@ import VectorLayer from 'ol/layer/Vector.js';
 import VectorSource from 'ol/source/Vector.js';
 import Feature from 'ol/Feature.js';
 import Point from 'ol/geom/Point.js';
+import Zoom from 'ol/control/Zoom.js';
+import { defaults as defaultInteractions } from 'ol/interaction/defaults.js';
 import { Style, Fill, Stroke, Circle as CircleStyle } from 'ol/style.js';
 import { fromLonLat } from 'ol/proj.js';
 import Icon from '../components/Icon.vue';
 import { PLACES } from '../lib/datasets.js';
+import { studyList, showLayerInfo } from '../stores/layers.js';
+import { session } from '../stores/session.js';
+import { fmtDate } from '../lib/format.js';
 
 const router = useRouter();
-
 const logoUacam = `${import.meta.env.BASE_URL}img/uacam.webp`;
 const logoCedesu = `${import.meta.env.BASE_URL}img/cedesu.webp`;
 
-const herramientas = [
-  { icono: 'map', titulo: 'Visor cartográfico', ruta: '/', cta: 'Abrir el mapa', ancho: true,
-    descripcion: 'Navega por el territorio, activa capas temáticas, cambia el mapa base y cambia cómo se dibuja cada capa.' },
-  { icono: 'book-open', titulo: 'Catálogo de estudios', ruta: '/catalogo', cta: 'Ver estudios',
-    descripcion: 'Investigaciones y proyectos territoriales con su ficha de metadatos: autoría, fecha, licencia y procedencia.' },
-  { icono: 'search', titulo: 'Búsqueda y localización', ruta: '/', cta: 'Buscar en el mapa',
-    descripcion: 'Encuentra municipios, localidades de Campeche, capas y coordenadas desde un solo cuadro.' },
-  { icono: 'crosshair', titulo: 'Consulta y medición', ruta: '/', cta: 'Probar herramientas', ancho: true,
-    descripcion: 'Identifica los atributos de cualquier elemento del mapa y mide distancias y áreas en tiempo real.' }
-];
-
-const pasos = [
-  { icono: 'layers', titulo: 'Activa capas', texto: 'Elige qué mostrar: división territorial, clima y los estudios publicados.' },
-  { icono: 'crosshair', titulo: 'Identifica y mide', texto: 'Toca un elemento para ver sus atributos; mide distancias y áreas.' },
-  { icono: 'file-text', titulo: 'Consulta la ficha', texto: 'Cada capa trae su procedencia, licencia y fecha para citarla bien.' }
-];
-
-// Agrega aquí los nombres cuando estén autorizados.
-const colaboradores = [
-  // { nombre: 'Nombre del integrante', cargo: 'Desarrollador' },
-];
-
-function entrarAlMapa() {
-  try {
-    localStorage.setItem('cedesuWelcomeVisitedV3', '1');
-  } catch {
-    // La navegación funciona aunque el almacenamiento esté deshabilitado.
-  }
-  router.push('/');
+function go(path) {
+  try { localStorage.setItem('cedesuWelcomeVisitedV3', '1'); } catch { /* sin almacenamiento */ }
+  router.push(path);
 }
+function focusSearch() { document.querySelector('input[type=search]')?.focus(); }
 
-/* ---------------- mapa del héroe ---------------- */
+/* Accesos: todos ven el mapa y el catálogo; con sesión se suman los de trabajo */
+const accesos = computed(() => {
+  const list = [
+    { icon: 'map', titulo: 'Explorar el mapa', texto: 'Activa capas, consulta sus datos y mide distancias y áreas.', run: () => go('/') },
+    { icon: 'book-open', titulo: 'Catálogo de estudios', texto: 'Busca por tema o año y abre la ficha de cada estudio.', run: () => go('/catalogo') },
+    { icon: 'search', titulo: 'Buscar un lugar o coordenada', texto: 'Escribe un municipio, una localidad o unas coordenadas.', run: focusSearch }
+  ];
+  if (session.admin) {
+    list.push(
+      { icon: 'upload', titulo: 'Cargar datos', texto: 'Sube archivos, revisa su vista previa y envíalos a revisión.', run: () => go('/carga'), admin: true },
+      { icon: 'satellite-dish', titulo: 'Captura GPS', texto: 'Registra puntos de campo o importa un Excel.', run: () => go('/gps'), admin: true },
+      { icon: 'shield-check', titulo: 'Revisión', texto: 'Aprueba, devuelve o publica las capas enviadas.', run: () => go('/revision'), admin: true }
+    );
+  }
+  return list;
+});
+
+/* Estudios del catálogo (los publicados primero) */
+const estudios = computed(() => studyList().slice(0, 6));
+const totalEstudios = computed(() => studyList().length);
+
+/* ---------------- mapa vivo ---------------- */
 const mapEl = ref(null);
 const current = ref(0);
 const playing = ref(false);
@@ -64,26 +64,24 @@ let markers = null;
 let timer = null;
 const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-const dot = new Style({ image: new CircleStyle({ radius: 4, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#214c7e', width: 1.5 }) }) });
-const halo = new Style({ image: new CircleStyle({ radius: 15, fill: new Fill({ color: 'rgba(212,166,76,0.28)' }) }) });
-const active = new Style({ image: new CircleStyle({ radius: 7, fill: new Fill({ color: '#d4a64c' }), stroke: new Stroke({ color: '#ffffff', width: 2 }) }) });
+const dot = new Style({ image: new CircleStyle({ radius: 5, fill: new Fill({ color: '#ffffff' }), stroke: new Stroke({ color: '#214c7e', width: 2 }) }) });
+const halo = new Style({ image: new CircleStyle({ radius: 16, fill: new Fill({ color: 'rgba(212,166,76,0.3)' }) }) });
+const active = new Style({ image: new CircleStyle({ radius: 8, fill: new Fill({ color: '#d4a64c' }), stroke: new Stroke({ color: '#ffffff', width: 2 }) }) });
 
 function fly(i, animate = true) {
   current.value = i;
   markers?.changed();
-  const [, , lat, lon] = PLACES[i];
   const view = map?.getView();
   if (!view) return;
-  const center = fromLonLat([lon, lat]);
-  if (animate && !reduced) view.animate({ center, zoom: 9.4, duration: 2200 });
-  else view.setCenter(center);
+  const center = fromLonLat([PLACES[i][3], PLACES[i][2]]);
+  if (animate && !reduced) view.animate({ center, zoom: 9.2, duration: 1800 });
+  else { view.setCenter(center); view.setZoom(9.2); }
 }
-
 function next() { fly((current.value + 1) % PLACES.length); }
-function play() { stop(); playing.value = true; timer = setInterval(() => { if (!document.hidden) next(); }, 6500); }
+function play() { stop(); playing.value = true; timer = setInterval(() => { if (!document.hidden) next(); }, 7000); }
 function stop() { playing.value = false; clearInterval(timer); timer = null; }
 function togglePlay() { playing.value ? stop() : play(); }
-function pick(i) { fly(i); if (playing.value) play(); }
+function pick(i) { stop(); fly(i); }
 
 onMounted(() => {
   const src = new VectorSource({
@@ -96,266 +94,174 @@ onMounted(() => {
   markers = new VectorLayer({ source: src, style: f => (f.get('i') === current.value ? [halo, active] : dot) });
   map = new OLMap({
     target: mapEl.value,
-    controls: [],
-    interactions: [],
-    layers: [
-      new TileLayer({ source: new XYZ({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, crossOrigin: 'anonymous' }) }),
-      markers
-    ],
-    view: new View({ center: fromLonLat([-90.5, 19.2]), zoom: 6.6 })
+    controls: [new Zoom({ zoomInTipLabel: 'Acercar', zoomOutTipLabel: 'Alejar' })],
+    interactions: defaultInteractions({ mouseWheelZoom: false }),   // la rueda sigue desplazando la página
+    layers: [new TileLayer({ source: new XYZ({ url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, crossOrigin: 'anonymous' }) }), markers],
+    view: new View({ center: fromLonLat([-90.5, 19.2]), zoom: 6.8 })
   });
+  /* Al tocar un punto, el mapa va a ese lugar; si la persona mueve el mapa, el recorrido se detiene */
+  map.on('singleclick', e => {
+    const f = map.forEachFeatureAtPixel(e.pixel, ft => ft, { layerFilter: l => l === markers });
+    if (f) pick(f.get('i'));
+  });
+  map.on('pointermove', e => { mapEl.value.style.cursor = map.hasFeatureAtPixel(e.pixel, { layerFilter: l => l === markers }) ? 'pointer' : ''; });
+  map.on('movestart', e => { if (e.map.getView().getInteracting()) stop(); });
   fly(0, false);
   setTimeout(() => { if (map) fly(0); }, 400);
   if (!reduced) play();
 });
 
-onBeforeUnmount(() => {
-  stop();
-  map?.setTarget(null);
-  map = null;
-});
+onBeforeUnmount(() => { stop(); map?.setTarget(null); map = null; });
 </script>
 
 <template>
-  <section class="inicio-cedesu">
-    <div class="inicio-contenido">
-
-      <!-- HÉROE -->
-      <header class="hero">
-        <div class="hero-texto">
-          <span class="hero-etiqueta"><Icon name="map-pin" class="ic-14" />DeltaMap-CEDESU · UACAM</span>
-          <h1>El territorio de Campeche, <em>a un clic</em>.</h1>
-          <p class="hero-sub">
-            Información geográfica para conocer, estudiar y comprender nuestro territorio, desarrollada en
-            colaboración con la Universidad Autónoma de Campeche.
-          </p>
-          <div class="hero-botones">
-            <button class="btn btn-primary" type="button" @click="entrarAlMapa"><Icon name="map" />Explorar el mapa</button>
-            <button class="btn btn-secondary" type="button" @click="router.push('/catalogo')"><Icon name="book-open" />Ver estudios</button>
-          </div>
-          <div class="hero-logos" aria-label="Instituciones">
-            <img :src="logoUacam" alt="Universidad Autónoma de Campeche" />
-            <img :src="logoCedesu" alt="CEDESU" />
-          </div>
-        </div>
-
-        <div class="hero-mapa">
-          <div class="mapa-marco">
-            <div ref="mapEl" class="mapa-ol" role="img" :aria-label="`Mapa de Campeche centrado en ${place[0]}`"></div>
-            <div class="mapa-velo" aria-hidden="true"></div>
-            <div class="mapa-pie" aria-live="polite">
-              <div>
-                <b>{{ place[0] }}</b>
-                <span>Municipio de {{ place[1] }}</span>
-              </div>
-              <code>{{ coordText }}</code>
-            </div>
-            <button type="button" class="mapa-play" :aria-label="playing ? 'Pausar el recorrido' : 'Reanudar el recorrido'" @click="togglePlay">
-              <svg v-if="playing" viewBox="0 0 24 24" class="ic" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
-              <svg v-else viewBox="0 0 24 24" class="ic" aria-hidden="true"><path d="M7 5v14l12-7z" /></svg>
-            </button>
-          </div>
-          <div class="mapa-chips" role="group" aria-label="Cabeceras municipales">
-            <button v-for="(p, i) in PLACES" :key="p[0]" type="button" class="chip" :aria-pressed="String(i === current)" @click="pick(i)">{{ p[0] }}</button>
-          </div>
-        </div>
+  <section class="inicio">
+    <div class="inicio-pagina">
+      <header class="inicio-cabecera">
+        <h1>Bienvenido a DeltaMap-CEDESU</h1>
+        <p>
+          La información geográfica de los estudios del Centro de Estudios para el Desarrollo Sustentable y
+          Aprovechamiento de la Vida Silvestre, en un solo lugar.
+        </p>
       </header>
 
-      <!-- FINALIDAD -->
-      <section class="seccion seccion-finalidad">
-        <div>
-          <span class="kicker">Propósito institucional</span>
-          <h2>Finalidad de la plataforma</h2>
-        </div>
-        <div class="finalidad-texto">
-          <p>
-            DeltaMap-CEDESU centraliza, organiza y visualiza la información geográfica de los estudios y proyectos de
-            investigación del Centro de Estudios para el Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre.
-          </p>
-          <p>
-            Con herramientas cartográficas interactivas facilita la consulta de datos territoriales y la localización de
-            los estudios, con la procedencia de cada capa a la vista.
-          </p>
-        </div>
-      </section>
-
-      <!-- HERRAMIENTAS -->
-      <section class="seccion">
-        <span class="kicker">Herramientas y servicios</span>
-        <h2>Capacidades disponibles para consulta</h2>
-        <div class="bento">
-          <article v-for="h in herramientas" :key="h.titulo" class="tarjeta" :class="{ ancha: h.ancho }">
-            <div class="icono"><Icon :name="h.icono" /></div>
-            <h3>{{ h.titulo }}</h3>
-            <p>{{ h.descripcion }}</p>
-            <button type="button" class="enlace" @click="router.push(h.ruta)">{{ h.cta }}<Icon name="chevron-right" class="ic-14" /></button>
-          </article>
-        </div>
-      </section>
-
-      <!-- CÓMO SE USA -->
-      <section class="seccion">
-        <span class="kicker">Cómo se usa</span>
-        <h2>Del mapa a la ficha, en tres movimientos</h2>
-        <ol class="pasos">
-          <li v-for="p in pasos" :key="p.titulo">
-            <span class="paso-icono"><Icon :name="p.icono" /></span>
+      <div class="inicio-rejilla">
+        <!-- Mapa -->
+        <section class="caja caja-mapa" aria-labelledby="inicioMapaTitulo">
+          <div class="caja-cab">
             <div>
-              <h3>{{ p.titulo }}</h3>
-              <p>{{ p.texto }}</p>
+              <h2 id="inicioMapaTitulo">Campeche en el mapa</h2>
+              <p>Toca un punto o elige una cabecera municipal.</p>
             </div>
-          </li>
-        </ol>
-      </section>
-
-      <!-- INSTITUCIONES -->
-      <section class="seccion">
-        <span class="kicker">Alianza institucional</span>
-        <h2>Instituciones participantes</h2>
-        <div class="instituciones">
-          <article class="tarjeta institucion">
-            <img :src="logoUacam" alt="" />
-            <div>
-              <h3>Facultad de Ingeniería</h3>
-              <p>Universidad Autónoma de Campeche</p>
-              <p>Desarrollo tecnológico de DeltaMap-CEDESU.</p>
-            </div>
-          </article>
-          <article class="tarjeta institucion">
-            <img :src="logoCedesu" alt="" />
-            <div>
-              <h3>CEDESU</h3>
-              <p>Universidad Autónoma de Campeche</p>
-              <p>Requerimientos y conocimiento territorial.</p>
-            </div>
-          </article>
-        </div>
-
-        <div v-if="colaboradores.length" class="integrantes">
-          <h3>Integrantes del proyecto</h3>
-          <div class="instituciones">
-            <article v-for="persona in colaboradores" :key="persona.nombre" class="tarjeta">
-              <strong>{{ persona.nombre }}</strong>
-              <p>{{ persona.cargo }}</p>
-            </article>
+            <button type="button" class="btn btn-quiet btn-sm" :aria-label="playing ? 'Pausar el recorrido' : 'Reanudar el recorrido'" @click="togglePlay">
+              <svg v-if="playing" viewBox="0 0 24 24" class="ic ic-play" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+              <svg v-else viewBox="0 0 24 24" class="ic ic-play" aria-hidden="true"><path d="M7 5v14l12-7z" /></svg>
+              {{ playing ? 'Pausar' : 'Recorrer' }}
+            </button>
           </div>
-        </div>
-      </section>
+          <div class="mapa-marco">
+            <div ref="mapEl" class="mapa-ol" role="img" :aria-label="`Mapa de Campeche centrado en ${place[0]}`"></div>
+            <div class="mapa-pie" aria-live="polite">
+              <b>{{ place[0] }}</b>
+              <span>Municipio de {{ place[1] }}</span>
+              <code>{{ coordText }}</code>
+            </div>
+          </div>
+          <div class="chips" role="group" aria-label="Cabeceras municipales">
+            <button v-for="(p, i) in PLACES" :key="p[0]" type="button" class="chip" :aria-pressed="String(i === current)" @click="pick(i)">{{ p[0] }}</button>
+          </div>
+          <div class="caja-pie">
+            <button type="button" class="btn btn-primary" @click="go('/')"><Icon name="map" />Abrir el mapa completo</button>
+          </div>
+        </section>
 
-      <footer class="cierre">
-        <div>
-          <h2>Empieza a explorar</h2>
-          <p>Activa una capa y recorre el territorio.</p>
-        </div>
-        <button class="btn btn-primary" type="button" @click="entrarAlMapa">Ir al visualizador<Icon name="chevron-right" /></button>
-      </footer>
+        <!-- Columna derecha -->
+        <div class="columna">
+          <section class="caja" aria-labelledby="inicioAccesosTitulo">
+            <div class="caja-cab"><h2 id="inicioAccesosTitulo">{{ session.admin ? 'Qué quieres hacer' : 'Empieza aquí' }}</h2></div>
+            <ul class="accesos">
+              <li v-for="a in accesos" :key="a.titulo">
+                <button type="button" class="acceso" :data-admin="String(!!a.admin)" @click="a.run">
+                  <span class="acceso-icono"><Icon :name="a.icon" /></span>
+                  <span class="acceso-texto"><b>{{ a.titulo }}</b><span>{{ a.texto }}</span></span>
+                  <Icon name="chevron-right" class="ic-14 acceso-flecha" />
+                </button>
+              </li>
+            </ul>
+          </section>
 
+          <section class="caja" aria-labelledby="inicioEstudiosTitulo">
+            <div class="caja-cab">
+              <div>
+                <h2 id="inicioEstudiosTitulo">Estudios disponibles</h2>
+                <p>{{ totalEstudios }} en el catálogo</p>
+              </div>
+              <button type="button" class="btn btn-quiet btn-sm" @click="go('/catalogo')">Ver todos</button>
+            </div>
+            <ul v-if="estudios.length" class="estudios">
+              <li v-for="e in estudios" :key="e.id">
+                <button type="button" class="estudio" :aria-label="`Ficha de ${e.title}`" @click="showLayerInfo(e.id)">
+                  <span class="estudio-titulo">{{ e.title }}</span>
+                  <span class="estudio-meta">
+                    <span class="badge" :class="e.published ? 'badge-ok' : ''">{{ e.published ? 'Publicada' : 'Referencia' }}</span>
+                    {{ e.theme }}<template v-if="e.date"> · {{ fmtDate(e.date) }}</template>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <p v-else class="vacio">Todavía no hay estudios en el catálogo.</p>
+          </section>
+
+          <section class="caja caja-acerca" aria-label="Instituciones participantes">
+            <img :src="logoUacam" alt="Universidad Autónoma de Campeche" />
+            <img :src="logoCedesu" alt="CEDESU" />
+            <p>Desarrollado por la Facultad de Ingeniería de la UACAM en colaboración con el CEDESU.</p>
+          </section>
+        </div>
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.inicio-cedesu { height: 100%; min-height: 0; overflow-y: auto; background: var(--ground); color: var(--text); }
-.inicio-contenido { max-width: 1180px; margin: 0 auto; padding: var(--s-6) var(--s-6) 72px; }
+.inicio { height: 100%; min-height: 0; overflow-y: auto; background: var(--ground); color: var(--text); }
+.inicio-pagina { max-width: 1240px; margin: 0 auto; padding: var(--s-6) var(--s-6) 56px; }
 
-/* ----- héroe ----- */
-.hero {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  align-items: center;
-  gap: 40px;
-  padding: 48px;
-  border-radius: 24px;
-  color: var(--text-inverse);
-  background:
-    radial-gradient(900px 420px at 85% -10%, rgb(212 166 76 / 18%), transparent 60%),
-    radial-gradient(700px 500px at 0% 110%, rgb(43 94 152 / 55%), transparent 60%),
-    linear-gradient(135deg, var(--navy-950), var(--navy-800));
-  overflow: hidden;
-}
-.hero::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  opacity: 0.07;
-  pointer-events: none;
-  background: repeating-radial-gradient(circle at 78% 30%, #fff 0 1px, transparent 1px 22px);
-}
-.hero > * { position: relative; }
-.hero-etiqueta { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid rgb(255 255 255 / 22%); border-radius: 999px; color: var(--gold-400); font-size: var(--fs-12); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
-.hero h1 { margin: 18px 0 14px; font-size: clamp(32px, 4.2vw, 52px); line-height: 1.08; letter-spacing: -0.02em; }
-.hero h1 em { font-style: normal; color: var(--gold-400); }
-.hero-sub { max-width: 46ch; margin: 0; font-size: var(--fs-16); line-height: 1.7; color: var(--text-inverse-2); }
-.hero-botones { display: flex; flex-wrap: wrap; gap: var(--s-3); margin-top: 28px; }
-.hero-logos { display: flex; align-items: center; gap: var(--s-3); margin-top: 32px; }
-.hero-logos img { width: 52px; height: 52px; object-fit: contain; padding: 6px; border-radius: 12px; background: var(--surface); }
+.inicio-cabecera h1 { margin: 0 0 var(--s-2); font-size: var(--fs-26); letter-spacing: -0.01em; }
+.inicio-cabecera p { margin: 0; max-width: 70ch; color: var(--text-2); font-size: var(--fs-15); line-height: 1.6; }
 
-.hero-mapa { display: grid; gap: var(--s-3); min-width: 0; }
-.mapa-marco { position: relative; aspect-ratio: 4 / 3; border-radius: 18px; overflow: hidden; border: 1px solid rgb(255 255 255 / 25%); box-shadow: 0 24px 60px rgb(3 10 20 / 45%); background: var(--navy-900); }
-.mapa-ol { position: absolute; inset: 0; filter: saturate(0.75) contrast(0.95); }
-.mapa-velo { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(to top, rgb(7 20 35 / 78%), transparent 45%); }
-.mapa-pie { position: absolute; left: 16px; right: 64px; bottom: 14px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--s-2); }
-.mapa-pie b { display: block; font-size: var(--fs-18); }
-.mapa-pie span { font-size: var(--fs-12); color: var(--text-inverse-2); }
-.mapa-pie code { font-family: var(--mono); font-size: var(--fs-12); color: var(--gold-400); }
-.mapa-play { position: absolute; right: 12px; bottom: 12px; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid rgb(255 255 255 / 30%); border-radius: 50%; background: rgb(7 20 35 / 70%); color: #fff; cursor: pointer; }
-.mapa-play:hover { background: rgb(7 20 35 / 90%); }
-.mapa-play .ic { width: 16px; height: 16px; fill: currentColor; stroke: none; }
-.mapa-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { padding: 4px 10px; border: 1px solid rgb(255 255 255 / 22%); border-radius: 999px; background: rgb(255 255 255 / 6%); color: var(--text-inverse-2); font: inherit; font-size: var(--fs-12); cursor: pointer; transition: background 120ms, color 120ms; }
-.chip:hover { background: rgb(255 255 255 / 14%); color: #fff; }
-.chip[aria-pressed="true"] { background: var(--gold-500); border-color: var(--gold-500); color: var(--navy-950); font-weight: 600; }
+.inicio-rejilla { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: var(--s-4); margin-top: var(--s-5); align-items: start; }
+.columna { display: grid; gap: var(--s-4); min-width: 0; }
 
-/* ----- secciones ----- */
-.seccion { padding-top: 64px; }
-.kicker { display: inline-block; padding: 4px 12px; border-radius: 999px; background: var(--navy-50); color: var(--navy-700); font-size: var(--fs-11); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-.seccion h2 { margin: 10px 0 0; font-size: clamp(24px, 2.8vw, 34px); letter-spacing: -0.01em; }
-.seccion-finalidad { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr); gap: 40px; align-items: start; }
-.finalidad-texto p { margin: 0 0 var(--s-3); font-size: var(--fs-16); line-height: 1.8; color: var(--text-2); }
+.caja { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); min-width: 0; }
+.caja-cab { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-3); padding: var(--s-4) var(--s-4) var(--s-2); }
+.caja-cab h2 { margin: 0; font-size: var(--fs-16); }
+.caja-cab p { margin: 2px 0 0; font-size: var(--fs-12); color: var(--text-3); }
+.caja-pie { padding: 0 var(--s-4) var(--s-4); }
 
-.bento { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--s-4); margin-top: 28px; }
-.tarjeta { position: relative; display: flex; flex-direction: column; grid-column: span 2; padding: 24px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); transition: transform 160ms, box-shadow 160ms, border-color 160ms; }
-.tarjeta.ancha { grid-column: span 4; }
-.bento .tarjeta:hover { transform: translateY(-3px); border-color: var(--line-strong); box-shadow: 0 14px 30px rgb(12 30 53 / 10%); }
-.icono { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 13px; background: var(--navy-50); color: var(--navy-700); }
-.tarjeta h3 { margin: 18px 0 8px; font-size: var(--fs-16); }
-.tarjeta p { margin: 0; color: var(--text-2); line-height: 1.6; font-size: var(--fs-14); }
-.enlace { display: inline-flex; align-items: center; gap: 4px; margin-top: auto; padding: 18px 0 0; border: 0; background: none; color: var(--navy-700); font: inherit; font-size: var(--fs-14); font-weight: 600; cursor: pointer; }
-.enlace:hover { text-decoration: underline; }
+/* mapa */
+.mapa-marco { position: relative; margin: var(--s-2) var(--s-4) 0; height: 400px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-3); }
+.mapa-ol { position: absolute; inset: 0; }
+.mapa-pie { position: absolute; left: 10px; bottom: 10px; display: grid; gap: 1px; padding: 6px 10px; border-radius: 8px; background: rgb(255 255 255 / 92%); box-shadow: 0 1px 6px rgb(12 30 53 / 18%); pointer-events: none; }
+.mapa-pie b { font-size: var(--fs-14); }
+.mapa-pie span { font-size: var(--fs-12); color: var(--text-2); }
+.mapa-pie code { font-family: var(--mono); font-size: var(--fs-11); color: var(--text-3); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; padding: var(--s-3) var(--s-4); }
+.chip { padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--text-2); font: inherit; font-size: var(--fs-12); cursor: pointer; }
+.chip:hover { background: var(--surface-2); }
+.chip[aria-pressed="true"] { background: var(--navy-700); border-color: var(--navy-700); color: var(--text-inverse); }
+.ic-play { width: 14px; height: 14px; fill: currentColor; stroke: none; }
 
-.pasos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-4); margin: 28px 0 0; padding: 0; list-style: none; position: relative; }
-.pasos li { display: flex; gap: var(--s-3); padding: 20px; border-radius: 16px; background: var(--surface-2); border: 1px dashed var(--line-strong); }
-.paso-icono { flex: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; background: var(--navy-700); color: #fff; }
-.pasos h3 { margin: 0 0 4px; font-size: var(--fs-15); }
-.pasos p { margin: 0; color: var(--text-2); font-size: var(--fs-13); line-height: 1.6; }
+/* accesos */
+.accesos, .estudios { list-style: none; margin: 0; padding: 0 var(--s-2) var(--s-2); display: grid; gap: 2px; }
+.acceso { display: flex; align-items: center; gap: var(--s-3); width: 100%; padding: var(--s-3) var(--s-2); border: 0; border-radius: 10px; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.acceso:hover { background: var(--surface-2); }
+.acceso-icono { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: var(--navy-50); color: var(--navy-700); }
+.acceso[data-admin="true"] .acceso-icono { background: var(--gold-100); color: var(--demo); }
+.acceso-texto { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.acceso-texto b { font-size: var(--fs-14); }
+.acceso-texto span { font-size: var(--fs-12); color: var(--text-3); line-height: 1.4; }
+.acceso-flecha { color: var(--text-3); }
 
-.instituciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); margin-top: 28px; }
-.institucion { flex-direction: row; align-items: center; gap: 20px; grid-column: auto; }
-.institucion img { width: 72px; height: 72px; object-fit: contain; flex: none; }
-.institucion h3 { margin: 0 0 4px; }
-.integrantes { margin-top: 30px; }
+/* estudios */
+.estudio { display: grid; gap: 3px; width: 100%; padding: var(--s-2) var(--s-2); border: 0; border-radius: 8px; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.estudio:hover { background: var(--surface-2); }
+.estudio-titulo { font-size: var(--fs-14); font-weight: 600; overflow-wrap: anywhere; }
+.estudio-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--fs-12); color: var(--text-3); }
+.vacio { margin: 0; padding: 0 var(--s-4) var(--s-4); color: var(--text-3); font-size: var(--fs-13); }
 
-.cierre { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-4); margin-top: 64px; padding: 32px 36px; border-radius: 20px; color: var(--text-inverse); background: linear-gradient(120deg, var(--navy-900), var(--navy-700)); }
-.cierre h2 { margin: 0 0 4px; font-size: var(--fs-22); }
-.cierre p { margin: 0; color: var(--text-inverse-2); }
+/* instituciones */
+.caja-acerca { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-3) var(--s-4); }
+.caja-acerca img { width: 44px; height: 44px; object-fit: contain; flex: none; }
+.caja-acerca p { margin: 0; font-size: var(--fs-12); color: var(--text-3); line-height: 1.5; }
 
-/* ----- adaptación ----- */
 @media (max-width: 960px) {
-  .hero { grid-template-columns: 1fr; padding: 32px 24px; }
-  .seccion-finalidad { grid-template-columns: 1fr; gap: var(--s-3); }
-  .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .tarjeta, .tarjeta.ancha { grid-column: span 1; }
-  .pasos { grid-template-columns: 1fr; }
+  .inicio-rejilla { grid-template-columns: 1fr; }
+  .mapa-marco { height: 320px; }
 }
 @media (max-width: 650px) {
-  .inicio-contenido { padding: var(--s-4) 16px 56px; }
-  .bento, .instituciones { grid-template-columns: 1fr; }
-  .cierre { padding: 24px; }
-  .cierre .btn { width: 100%; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .tarjeta, .chip { transition: none; }
-  .bento .tarjeta:hover { transform: none; }
+  .inicio-pagina { padding: var(--s-4) 16px 48px; }
+  .mapa-marco { margin-inline: var(--s-3); height: 280px; }
+  .chips, .caja-pie, .caja-cab { padding-inline: var(--s-3); }
 }
 </style>
