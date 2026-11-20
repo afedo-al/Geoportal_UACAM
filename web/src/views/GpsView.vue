@@ -3,8 +3,9 @@ import { ref, reactive, computed, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import GpsPickerMap from '../components/GpsPickerMap.vue';
+import GpsImports from '../components/GpsImports.vue';
 import {
-  gps, addPoint, exportCSV, importExcel, downloadTemplate, selectPhoto, removePhoto, setManualCoordinates, useDeviceLocation,
+  gps, pointsOfImport, addPoint, exportCSV, importExcel, downloadTemplate, saveAsLayer, selectPhoto, removePhoto, setManualCoordinates, useDeviceLocation,
   editPoint, cancelEdit, deletePoint, validateCoords, LAT, LON, REMOTE
 } from '../stores/gps.js';
 import { focusGpsPoint, showAllGps } from '../stores/map.js';
@@ -29,7 +30,25 @@ const coordHelp = computed(() => coordMode.value === 'wgs84'
   ? 'Latitud y longitud en grados decimales. Ejemplo: 19.84530, -90.52283.'
   : `Este (X) y Norte (Y) en metros, WGS 84 / ${coordMode.value === 'utm15' ? 'UTM 15N' : 'UTM 16N'}.`);
 
-const reversed = computed(() => gps.points.slice().reverse());
+/* La lista muestra los más recientes; con miles de puntos pintarlos todos congelaría la página */
+const shownLimit = ref(200);
+/* Origen de los puntos: todos, capturados a mano o uno de los Excel importados */
+const source = ref('all');
+const excels = computed(() => gps.imports.map(i => ({ id: i.id, name: i.name, n: pointsOfImport(i).length })).filter(i => i.n));
+const excelOf = computed(() => {
+  const map = new Map();
+  gps.imports.forEach(i => i.pointIds.forEach(id => map.set(id, i.name)));
+  return map;
+});
+const manualCount = computed(() => gps.points.filter(p => !excelOf.value.has(p.id)).length);
+/* Si el Excel elegido ya no existe (se eliminó), se vuelve a «Todos» */
+watch(excels, list => { if (!['all', 'manual'].includes(source.value) && !list.some(i => i.id === source.value)) source.value = 'all'; });
+const filtered = computed(() => source.value === 'all' ? gps.points
+  : source.value === 'manual' ? gps.points.filter(p => !excelOf.value.has(p.id))
+  : []);
+const reversed = computed(() => filtered.value.slice(-shownLimit.value).reverse());
+const hiddenPoints = computed(() => Math.max(0, filtered.value.length - shownLimit.value));
+const inExcel = computed(() => !['all', 'manual'].includes(source.value));
 const editingPoint = computed(() => gps.points.find(p => p.id === gps.editing) || null);
 const coordOk = computed(() => !gps.errors.lat && !gps.errors.lon && gps.form.lat !== '' && gps.form.lon !== '');
 const coordLabel = computed(() => {
@@ -158,6 +177,7 @@ function startEdit(id) {
 function onPick(lat, lon) { setManualCoordinates(lat, lon, 'mapa'); syncCoordInput(); }
 function onSelect(id) { gps.selected = gps.selected === id ? null : id; nextTick(() => document.querySelector(`[data-point="${id}"]`)?.scrollIntoView({ block: 'nearest' })); }
 
+async function pointsAsLayer() { if (await saveAsLayer(gps.points, 'puntos de campo')) router.push('/carga'); }
 function onExcel(file) { importExcel(file, coordMode.value).finally(() => { if (excelEl.value) excelEl.value.value = ''; }); }
 function onDrop(e) { over.value = false; onExcel(e.dataTransfer.files?.[0]); }
 function focusPoint(p) { router.push('/'); focusGpsPoint(p); }
@@ -347,10 +367,18 @@ function showAll() {
               <div><h2 id="gpsListTitle">Puntos registrados</h2><p v-if="REMOTE">Guardados en el servidor de DeltaMap-CEDESU. Exporta el CSV para usarlos en otros programas.</p><p v-else>Solo en este navegador, sin sincronización. Borrar los datos del sitio los elimina: exporta el CSV para conservarlos.</p></div>
               <span class="badge">{{ gps.points.length }} {{ gps.points.length === 1 ? 'punto' : 'puntos' }}</span>
             </div>
-            <ul v-if="gps.points.length" class="gps-list" aria-label="Puntos guardados">
+            <div v-if="excels.length" class="gps-sources" role="group" aria-label="Origen de los puntos">
+              <button type="button" class="chip-btn" :aria-pressed="String(source === 'all')" @click="source = 'all'">Todos <span>{{ gps.points.length }}</span></button>
+              <button type="button" class="chip-btn" :aria-pressed="String(source === 'manual')" @click="source = 'manual'">Capturados a mano <span>{{ manualCount }}</span></button>
+              <button v-for="x in excels" :key="x.id" type="button" class="chip-btn" :aria-pressed="String(source === x.id)" :title="x.name" @click="source = x.id">
+                <Icon name="file-spreadsheet" class="ic-14" /><span class="chip-name">{{ x.name }}</span> <span>{{ x.n }}</span>
+              </button>
+            </div>
+            <GpsImports v-if="inExcel" :only="source" />
+            <ul v-else-if="filtered.length" class="gps-list" aria-label="Puntos guardados">
               <li v-for="p in reversed" :key="p.id" :data-point="p.id" :data-selected="String(gps.selected === p.id)" :data-editing="String(gps.editing === p.id)">
                 <button type="button" class="gps-item" :aria-pressed="String(gps.selected === p.id)" @click="onSelect(p.id)">
-                  <span class="t">{{ p.name }}</span>
+                  <span class="t">{{ p.name }}<span v-if="excelOf.get(p.id)" class="badge gps-xls" :title="excelOf.get(p.id)"><Icon name="file-spreadsheet" class="ic-14" />Excel</span></span>
                   <span class="s">{{ p.type }} · {{ fmtDay(p.date) }} {{ p.time }}</span>
                   <span class="s mono">
                     {{ Number(p.lat).toFixed(5) }},
@@ -373,11 +401,13 @@ function showAll() {
                 </span>
               </li>
             </ul>
-            <div v-else class="panel-body">
+            <div v-if="!inExcel && hiddenPoints" class="panel-foot"><button type="button" class="btn btn-quiet btn-sm" @click="shownLimit += 200">Mostrar {{ Math.min(200, hiddenPoints) }} más ({{ hiddenPoints.toLocaleString('es-MX') }} sin mostrar)</button></div>
+            <div v-else-if="!inExcel && !filtered.length" class="panel-body">
               <div class="empty flush"><strong>Sin puntos registrados</strong>Elige una ubicación en el mapa y guarda el punto, o importa un Excel. Los puntos aparecerán aquí, en este mapa y en el visor.</div>
             </div>
             <div class="panel-foot">
               <button type="button" class="btn btn-secondary" :disabled="!gps.points.length" @click="exportCSV"><Icon name="download" />Exportar CSV</button>
+              <button type="button" class="btn btn-secondary" :disabled="!gps.points.length" @click="pointsAsLayer"><Icon name="layers" />Guardar como capa</button>
               <button type="button" class="btn btn-primary" :disabled="!gps.points.length" @click="showAll"><Icon name="map" />Ver todos en el visor</button>
             </div>
           </section>
@@ -395,6 +425,7 @@ function showAll() {
               </div>
             </div>
           </section>
+
         </div>
       </div>
     </div>

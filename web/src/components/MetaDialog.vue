@@ -105,7 +105,7 @@ function onMap() {
         <StudyCard v-if="(m.versiones || []).length > 1" title="Versiones" icon="clock" wide>
           <ol class="fc-timeline">
             <li v-for="v in m.versiones" :key="v.id" :data-current="String(v.version === m.version)">
-              <b>Versión {{ v.version }}</b><span class="badge">{{ v.estadoTexto }}</span><span class="fc-date">{{ fmtDate(v.fecha) }}</span>
+              <b>Versión {{ v.version }}</b><span class="badge">{{ v.estadoTexto }}</span><span class="fc-date">{{ fmtDate(String(v.fecha).slice(0, 10)) }}</span>
             </li>
           </ol>
         </StudyCard>

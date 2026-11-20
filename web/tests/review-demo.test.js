@@ -104,3 +104,12 @@ test('lo cargado queda como «Interna» si no se indica otro acceso', () => {
   const demo = createReviewDemo({ initialLayers: [], loadGeoJSON: async () => null });
   assert.equal(demo.add({ id: 'a', titulo: 'x' }).acceso, 'Interna');
 });
+
+test('add rechaza datos inválidos e identificadores repetidos y pone nombre a las capas sin título', () => {
+  const demo = createReviewDemo({ initialLayers: [], loadGeoJSON: async () => null });
+  assert.throws(() => demo.add());
+  assert.throws(() => demo.add(null));
+  assert.equal(demo.add({ id: 'a' }).titulo, 'Capa sin nombre');
+  assert.throws(() => demo.add({ id: 'a', titulo: 'otra' }), /identificador/);
+  assert.equal(demo.list().cargas.length, 1);
+});

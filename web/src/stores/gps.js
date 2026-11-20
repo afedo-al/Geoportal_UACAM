@@ -13,6 +13,8 @@ import {
   altitudeError,
   inWorkArea
 } from '../lib/coords.js';
+import { ID_OK, normalizeIds } from '../lib/point-ids.js';
+import { pointsToGeoJSON, gpsLayerFileName } from '../lib/gps-layer.js';
 import { resolveCoords, ALIASES, TEMPLATE_HEADERS, TEMPLATE_EXAMPLE } from '../lib/excel-points.js';
 
 /* remote: los puntos viven en el servidor */
@@ -43,6 +45,7 @@ const emptyForm = () => ({
 
 export const gps = reactive({
   points: [],
+  imports: [],   // Excel importados: { id, name, date, pointIds }
   counter: 0,
   form: emptyForm(),
 
@@ -89,9 +92,11 @@ function sanitizePoint(pt) {
       .replace(/[\u0000-\u001f\u007f]/g, ' ')
       .slice(0, max);
 
+  const id = str(pt.id, 40).trim();
+
   return {
-    id: str(pt.id, 40),
-    name: str(pt.name, 120),
+    id: ID_OK.test(id) ? id : '',
+    name: str(pt.name, 120).trim() || 'Punto sin nombre',
 
     lat,
     lon,
@@ -118,6 +123,10 @@ function sanitizePoint(pt) {
   };
 }
 
+/* Topes para que la pantalla y el almacenamiento del navegador sigan respondiendo */
+export const MAX_POINTS = 5000;
+export const MAX_IMPORT_ROWS = 2000;
+
 /* Punto tal como lo devuelve el servidor: la fotografía es una ruta de la API */
 const fromServer = p => sanitizePoint({ ...p, photo: p.photo ? apiHref(p.photo) : '' });
 const apiMessage = err => (err instanceof ApiError ? err.detalle : 'No se pudo conectar con el servidor.');
@@ -142,7 +151,7 @@ async function loadRemote() {
 async function migrateLocal() {
   const saved = store.get('cedesuGPSPoints', null);
   if (!Array.isArray(saved) || !saved.length) return;
-  const local = saved.map(sanitizePoint).filter(Boolean);
+  const local = normalizeIds(saved.map(sanitizePoint).filter(Boolean)).slice(0, MAX_POINTS);
   if (!local.length) { store.set('cedesuGPSPoints', null); return; }
   try {
     const { puntos } = await api('/puntos/lote', { method: 'POST', json: { puntos: local } });
@@ -154,7 +163,128 @@ async function migrateLocal() {
   } catch (err) { showToast('warn', 'Puntos locales sin subir', `Siguen en este navegador: ${apiMessage(err)}`); }
 }
 
+/* ---------------- Excel importados ----------------
+   Cada importación recuerda qué puntos trajo, para poder verla, editarla y eliminarla como un conjunto. Solo se
+   guarda este índice en el navegador; los puntos siguen donde estén (navegador o servidor). */
+const IMPORTS_KEY = 'cedesuGPSImports';
+function readImports() {
+  const saved = store.get(IMPORTS_KEY, null);
+  if (!Array.isArray(saved)) return [];
+  return saved.filter(i => i && typeof i === 'object' && Array.isArray(i.pointIds)).slice(0, 200).map(i => ({
+    id: String(i.id || '').slice(0, 40) || `imp-${Date.now().toString(36)}`,
+    name: String(i.name || 'Excel').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120),
+    date: /^\d{4}-\d{2}-\d{2}/.test(String(i.date)) ? String(i.date).slice(0, 10) : '',
+    pointIds: i.pointIds.filter(x => typeof x === 'string' && ID_OK.test(x)).slice(0, MAX_POINTS)
+  }));
+}
+const saveImports = () => store.set(IMPORTS_KEY, gps.imports);
+
+export const pointsOfImport = imp => {
+  const ids = new Set(imp.pointIds);
+  return gps.points.filter(p => ids.has(p.id));
+};
+
+/* Mantiene al día la capa de Carga generada desde el Excel, mientras no se haya enviado a revisión */
+async function syncImportLayer(imp) {
+  try {
+    const { findOpenLayer, addFiles, removeItem } = await import('./upload.js');
+    const name = gpsLayerFileName(imp.name);
+    const open = findOpenLayer(name);
+    if (!open) return;
+    const pts = pointsOfImport(imp);
+    if (!pts.length) { removeItem(open.id); return; }
+    addFiles([new File([JSON.stringify(pointsToGeoJSON(pts))], name, { type: 'application/geo+json' })]);
+  } catch { /* la capa de Carga es opcional: los puntos ya están a salvo */ }
+}
+
+/* Cambia campos de un punto importado. patch: { name, lon, lat, altitude, property, author } (texto o número) */
+export async function updateImportedPoint(importId, id, patch) {
+  const imp = gps.imports.find(i => i.id === importId);
+  const i = gps.points.findIndex(p => p.id === id);
+  if (!imp || i < 0) return false;
+  const before = gps.points[i];
+  const latErr = coordError(patch.lat, 'lat'), lonErr = coordError(patch.lon, 'lon'), altErr = altitudeError(patch.altitude);
+  if (latErr || lonErr || altErr) { showToast('error', 'No se guardó la fila', latErr || lonErr || altErr); return false; }
+  const num = v => Number(String(v).trim().replace(',', '.'));
+  const next = sanitizePoint({
+    ...before, id: before.id, name: patch.name, lat: num(patch.lat), lon: num(patch.lon),
+    altitude: String(patch.altitude ?? '').trim() === '' ? null : num(patch.altitude), property: patch.property, author: patch.author
+  });
+  if (!next) { showToast('error', 'No se guardó la fila', 'Los datos no son válidos.'); return false; }
+  next.id = before.id;
+  if (REMOTE) {
+    try {
+      const saved = fromServer(await api(`/puntos/${encodeURIComponent(id)}`, { method: 'PUT', json: { ...next, photo: undefined } }));
+      if (!saved) return false;
+      gps.points.splice(gps.points.findIndex(p => p.id === id), 1, { ...next, ...saved });
+    } catch (err) { showToast('error', 'No se guardó la fila', apiMessage(err)); return false; }
+  } else {
+    gps.points.splice(i, 1, next);
+    if (!persist()) { gps.points.splice(i, 1, before); return false; }
+  }
+  setGpsMarkers(gps.points);
+  await syncImportLayer(imp);
+  return true;
+}
+
+/* Quita una fila del Excel importado (y su punto) */
+export async function deleteImportedPoint(importId, id) {
+  const imp = gps.imports.find(i => i.id === importId);
+  await deletePoint(id);
+  if (!imp || gps.points.some(p => p.id === id)) return;   // se canceló o falló
+  imp.pointIds = imp.pointIds.filter(x => x !== id);
+  saveImports();
+  await syncImportLayer(imp);
+}
+
+/* Elimina el Excel importado completo: sus puntos y, si no se ha enviado, su capa en Carga */
+export async function deleteImport(importId) {
+  const imp = gps.imports.find(i => i.id === importId);
+  if (!imp) return false;
+  const pts = pointsOfImport(imp);
+  const ok = await confirmAction({
+    title: `Eliminar «${imp.name}»`,
+    text: `Se eliminan sus ${pts.length.toLocaleString('es-MX')} ${pts.length === 1 ? 'punto' : 'puntos'}${REMOTE ? ' del servidor' : ' de este navegador'} y su capa en Carga, si aún no la enviaste a revisión. Los puntos capturados a mano no se tocan. No se puede deshacer.`,
+    ok: 'Eliminar Excel', danger: true
+  });
+  if (!ok) return false;
+  const done = startTask('Eliminando Excel importado');
+  try {
+    if (REMOTE) {
+      for (const p of pts) {
+        try { await api(`/puntos/${encodeURIComponent(p.id)}`, { method: 'DELETE' }); }
+        catch (err) { showToast('error', 'No se eliminó todo', apiMessage(err)); return false; }
+      }
+    }
+    const gone = new Set(pts.map(p => p.id));
+    const before = gps.points;
+    gps.points = before.filter(p => !gone.has(p.id));
+    if (!persist()) { gps.points = before; return false; }
+    if (gps.selected && gone.has(gps.selected)) gps.selected = null;
+    if (gps.editing && gone.has(gps.editing)) resetForm();
+    gps.counter = gps.points.length;
+    setGpsMarkers(gps.points);
+    gps.imports = gps.imports.filter(i => i.id !== importId);
+    saveImports();
+    try {
+      const { findOpenLayer, removeItem } = await import('./upload.js');
+      const open = findOpenLayer(gpsLayerFileName(imp.name));
+      if (open) removeItem(open.id);
+    } catch { /* sin capa en Carga */ }
+    showToast('success', 'Excel eliminado', `«${imp.name}» y sus ${pts.length.toLocaleString('es-MX')} puntos.`);
+    return true;
+  } finally { done(); }
+}
+
+function registerImport(name, pointIds) {
+  /* Importar de nuevo un Excel con el mismo nombre crea otro conjunto; la capa de Carga se reemplaza como siempre */
+  gps.imports.unshift({ id: `imp-${Date.now().toString(36)}-${gps.imports.length}`, name: String(name).slice(0, 120), date: new Date().toISOString().slice(0, 10), pointIds });
+  if (gps.imports.length > 200) gps.imports.length = 200;
+  saveImports();
+}
+
 export function initGps() {
+  gps.imports = readImports();
   if (REMOTE) {
     onSessionStart(() => loadRemote());
     onSessionEnd(() => { gps.points = []; gps.counter = 0; gps.selected = null; resetForm(); setGpsMarkers([]); });
@@ -163,7 +293,7 @@ export function initGps() {
   const savedVersion = store.get('cedesuGPSVersion', null);
   const saved = store.get('cedesuGPSPoints', null);
   if (savedVersion === GPS_VERSION && Array.isArray(saved)) {
-    gps.points = saved.map(sanitizePoint).filter(Boolean);
+    gps.points = normalizeIds(saved.map(sanitizePoint).filter(Boolean)).slice(0, MAX_POINTS);
     if (gps.points.length !== saved.length) { showToast('warn', 'Puntos locales descartados', `${saved.length - gps.points.length} registros guardados no eran válidos.`); persist(); }
   } else { gps.points = []; store.set('cedesuGPSVersion', GPS_VERSION); persist(); }
   gps.counter = gps.points.length;
@@ -342,6 +472,7 @@ export async function deletePoint(id) {
 export async function addPoint() {
   const f = gps.form;
   if (!validateCoords()) return false;
+  if (!REMOTE && !gps.editing && gps.points.length >= MAX_POINTS) { showToast('error', 'Límite de puntos', `Este navegador guarda hasta ${MAX_POINTS.toLocaleString('es-MX')} puntos. Exporta el CSV y elimina los que ya no necesites.`); return false; }
   const lat = Number(String(f.lat).replace(',', '.')), lon = Number(String(f.lon).replace(',', '.'));
   let photo = f.photo && !f.photoFile ? safePhotoURL(f.photo) : '';
   if (f.photoFile) {
@@ -455,6 +586,26 @@ export async function exportCSV() {
   downloadBlob(new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' }), 'puntos_campo_cedesu.csv');
 }
 
+/* Las capturas pasan a ser una capa del lote de Carga (GeoJSON): desde ahí se completa su estudio, se envía a revisión
+   y se publica como cualquier otra capa. Volver a guardar con el mismo nombre reemplaza la versión del lote. */
+export async function saveAsLayer(points, base) {
+  const list = (points || []).filter(Boolean);
+  if (!list.length) { showToast('info', 'Sin puntos', 'No hay capturas para guardar como capa.'); return false; }
+  const geojson = pointsToGeoJSON(list);
+  if (!geojson.features.length) { showToast('error', 'No se creó la capa', 'Ningún punto tiene coordenadas válidas.'); return false; }
+  const name = gpsLayerFileName(base);
+  const file = new File([JSON.stringify(geojson)], name, { type: 'application/geo+json' });
+  try {
+    const { addFiles } = await import('./upload.js');
+    addFiles([file]);
+  } catch (err) {
+    showToast('error', 'No se creó la capa', 'No se pudo preparar la capa en Carga.');
+    return false;
+  }
+  showToast('success', 'Capa creada en Carga', `«${name.replace(/\.geojson$/, '')}» con ${geojson.features.length.toLocaleString('es-MX')} ${geojson.features.length === 1 ? 'punto' : 'puntos'}. Completa su estudio y envíala a revisión.`);
+  return true;
+}
+
 /* Plantilla de Excel: Name, X, Y, Autor */
 export async function downloadTemplate() {
   const mod = await import('xlsx');
@@ -489,6 +640,8 @@ export async function importExcel(file, coordZone = '') {
     const XLSX = mod.default?.read ? mod.default : mod;
     const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
+    if (rows.length > MAX_IMPORT_ROWS) return showToast('error', 'Demasiadas filas', `El Excel tiene ${rows.length.toLocaleString('es-MX')} filas y el máximo por importación es ${MAX_IMPORT_ROWS.toLocaleString('es-MX')}. Divídelo en varios archivos.`);
+    if (!REMOTE && gps.points.length + rows.length > MAX_POINTS) return showToast('error', 'Límite de puntos', `Este navegador guarda hasta ${MAX_POINTS.toLocaleString('es-MX')} puntos y ya hay ${gps.points.length.toLocaleString('es-MX')}. Exporta el CSV y elimina los que ya no necesites.`);
     const imported = [], skipped = [];
     const preferred = Number((coordZone || '').replace('utm', '')) || null;
     const resolved = resolveCoords(rows, preferred);
@@ -575,7 +728,7 @@ export async function importExcel(file, coordZone = '') {
       return showToast('error', 'Importación detenida', `Filas sin coordenadas válidas para Campeche: ${skipped.slice(0, 10).join(', ')}${skipped.length > 10 ? '…' : ''}. Corrígelas y vuelve a importar; no se descartan filas en silencio.`);
     }
     if (!imported.length) return showToast('error', 'Sin coordenadas', 'No se encontraron columnas de latitud y longitud válidas.');
-    const clean = imported.map(sanitizePoint).filter(Boolean);
+    const clean = normalizeIds(imported.map(sanitizePoint).filter(Boolean), gps.points.map(p => p.id));
     if (REMOTE) {
       try {
         const { puntos } = await api('/puntos/lote', { method: 'POST', json: { puntos: clean.map(p => ({ ...p, photo: '' })) } });
@@ -583,6 +736,8 @@ export async function importExcel(file, coordZone = '') {
         gps.counter = gps.points.length;
         setGpsMarkers(gps.points);
         showToast('success', 'Excel importado', `${puntos.length} puntos guardados en el servidor.`);
+        registerImport(file.name, puntos.map(p => p.id));
+        await saveAsLayer(gps.points.slice(-puntos.length), file.name);
       } catch (err) { showToast('error', 'No se importó el Excel', apiMessage(err)); }
       return;
     }
@@ -590,6 +745,8 @@ export async function importExcel(file, coordZone = '') {
     gps.counter = gps.points.length;
     if (!persist()) { gps.points.splice(-clean.length); return; }
     showToast('success', 'Excel importado', `${clean.length} puntos guardados en este navegador.`);
+    registerImport(file.name, clean.map(p => p.id));
+    await saveAsLayer(clean, file.name);
   } catch (error) {
     console.error(error);
     showToast('error', 'Error al leer Excel', 'Revisa que el archivo tenga encabezados de coordenadas válidos.');

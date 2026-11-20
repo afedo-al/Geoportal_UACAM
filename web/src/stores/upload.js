@@ -122,6 +122,7 @@ const extOf = name => /\.shp\.xml$/i.test(name) ? 'xml' : (name.split('.').pop()
 export const sizeOf = it => [...Object.values(it.parts), ...Object.values(it.extra || {}), it.sidecar].reduce((sum, f) => sum + (f?.size || 0), 0);
 
 function newItem(o) {
+  if (batch.items.length >= FC.LIMITS.maxItems) return null;   // tope de capas por lote
   const it = { id: `c${++seq}`, state: 'reading', progress: 0, checks: [], geojson: null, table: null, crs: null, srcCrs: null, issues: [], missing: [], message: null, layerName: o.name.replace(/[_-]+/g, ' ').trim(), srcFormat: o.format, ...o };
   batch.items.push(it);
   addStudy(it.id, it.layerName);
@@ -154,6 +155,8 @@ export function addFiles(fileList) {
   });
   const touched = [];
   const replaced = [];
+  let refused = 0;
+  const addNew = o => { const id = newItem(o); if (id) touched.push(id); else refused++; };
   const open = it => !['sending', 'sent'].includes(it.state);
   groups.forEach((list, key) => {
     const existing = batch.items.find(it => it.format === 'shp' && it.srcFormat === 'shp' && it.key === key && open(it));
@@ -168,7 +171,7 @@ export function addFiles(fileList) {
     } else {
       const parts = {};
       list.forEach(f => { parts[extOf(f.name)] = f; });
-      touched.push(newItem({ format: 'shp', key, name: baseName(list[0].name), parts }));
+      addNew({ format: 'shp', key, name: baseName(list[0].name), parts });
     }
   });
   singles.filter(f => extOf(f.name) !== 'xml').forEach(f => {
@@ -182,16 +185,17 @@ export function addFiles(fileList) {
       if (!touched.includes(same.id)) touched.push(same.id);
       return;
     }
-    touched.push(newItem({ format: EXT[ext] || null, key: f.name.toLowerCase(), name: baseName(f.name), parts: { main: f } }));
+    addNew({ format: EXT[ext] || null, key: f.name.toLowerCase(), name: baseName(f.name), parts: { main: f } });
   });
   /* Un .xml suelto con el mismo nombre que una capa (GeoJSON, KML, CSV…) son sus metadatos: se unen a ella */
   singles.filter(f => extOf(f.name) === 'xml').forEach(f => {
     const base = baseName(f.name).toLowerCase();
     const target = batch.items.find(it => it.srcFormat !== 'shp' && open(it) && String(it.name || '').toLowerCase() === base);
-    if (!target) { touched.push(newItem({ format: null, key: f.name.toLowerCase(), name: baseName(f.name), parts: { main: f } })); return; }
+    if (!target) { addNew({ format: null, key: f.name.toLowerCase(), name: baseName(f.name), parts: { main: f } }); return; }
     attachFile(target, 'xml', f);
     if (!touched.includes(target.id)) applySidecarNow(target);   // la capa ya estaba leída: solo se leen los metadatos
   });
+  if (refused) showToast('warn', 'El lote está lleno', `Máximo ${FC.LIMITS.maxItems} capas por lote: no se agregaron ${refused} ${refused === 1 ? 'capa' : 'capas'}. Envía o vacía el lote antes de agregar más.`);
   if (replaced.length) {
     showToast('info', replaced.length === 1 ? 'Se reemplazó un archivo' : `Se reemplazaron ${replaced.length} archivos`,
       `${replaced.slice(0, 4).join(', ')}${replaced.length > 4 ? '…' : ''} ya estaba${replaced.length === 1 ? '' : 'n'} en el lote: se usa la versión nueva y se conserva lo que editaste del estudio.`);
@@ -446,6 +450,9 @@ export function clearItems() {
   clearStudies();
 }
 
+/* Capa del lote generada desde un archivo con ese nombre (por ejemplo, las capturas GPS), si aún no se envió */
+export const findOpenLayer = fileName => batch.items.find(it => it.key === String(fileName).toLowerCase() && !['sending', 'sent'].includes(it.state)) || null;
+
 export function removeItem(id) {
   const i = batch.items.findIndex(x => x.id === id);
   if (i < 0 || batch.items[i].state === 'sending') return;
@@ -693,11 +700,12 @@ async function sendLayers(list) {
     return;
   }
   if (!hasApi()) {
+    let sent = 0;
     list.forEach(id => {
       const it = byId(id);
-      it.state = 'sent';
       const study = studyPayload(studyById(it.id));
-      const added = reviewDemo.add({
+      let added;
+      try { added = reviewDemo.add({
         id: it.id,
         layerKey: layerKey(it.layerName),
         modo: it.updateMode || 'actualizar',
@@ -707,12 +715,19 @@ async function sendLayers(list) {
         estudio: study,
         crs: it.crs,
         archivos: Object.values(it.parts).filter(Boolean).map(f => ({ nombre: f.name, tam: f.size, sha256: it.hash || '0'.repeat(64) }))
-      }, it.geojson);
+      }, it.geojson); } catch (err) {
+        it.state = 'failed';
+        it.message = msg('alert-circle', ['b', 'No se pudo enviar a revisión.'], ['t', ` ${err.message} Nada se publicó.`]);
+        return;
+      }
+      it.state = 'sent';
+      sent++;
       it.serverId = added.id;
       it.message = msg('check-circle-2', ['b', 'Enviada a revisión.'], ['t', ' Quedó en cuarentena. Una persona administradora la aprueba antes de publicarla (pantalla Revisión).']);
     });
-    showToast('success', list.length === 1 ? 'Capa enviada a revisión' : `${list.length} capas enviadas a revisión`,
+    if (sent) showToast('success', sent === 1 ? 'Capa enviada a revisión' : `${sent} capas enviadas a revisión`,
       'Ya está disponible en la pantalla Revisión para su aprobación.');
+    if (sent < list.length) showToast('error', 'No se enviaron todas las capas', `${list.length - sent} no se pudieron enviar: revisa el mensaje de cada capa.`);
     return;
   }
   const done = startTask(list.length === 1 ? `Enviando ${byId(list[0])?.layerName || 'capa'}` : 'Enviando lote');

@@ -79,7 +79,10 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
       try { return clone(await geometries.get(id)); }
       catch (error) { geometries.delete(id); throw error; }
     },
-    add(info, geojson = null) {
+    add(rawInfo, geojson = null) {
+      if (!rawInfo || typeof rawInfo !== 'object') throw new Error('Los datos de la carga no son válidos.');
+      const info = { ...rawInfo, id: String(rawInfo.id || `carga-${Date.now().toString(36)}-${records.length}`), titulo: String(rawInfo.titulo ?? '').trim().slice(0, 200) || 'Capa sin nombre' };
+      if (records.some(r => r.id === info.id)) throw new Error('Ya existe una carga con ese identificador.');
       const now = new Date().toISOString();
       /* Misma clave = misma capa. modo \u00abnueva\u00bb crea otra capa aunque el nombre coincida. */
       let key = info.layerKey || layerKey(info.titulo);

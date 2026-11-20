@@ -1425,3 +1425,12 @@ input, textarea { caret-color: var(--navy-700); }
 .map-hint span { white-space: nowrap; }
 .map-hint.dock-open { left: calc(50% + 130px); }
 @media (max-width: 900px) { .map-hint, .map-hint.dock-open { left: 50%; bottom: 72px; } .map-hint span { white-space: normal; } }
+
+/* Captura GPS: filtro por origen de los puntos */
+.gps-sources { display: flex; flex-wrap: wrap; gap: var(--s-2); padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--line); }
+.chip-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--text-2); font: inherit; font-size: var(--fs-12); cursor: pointer; }
+.chip-btn:hover { background: var(--surface-2); }
+.chip-btn[aria-pressed="true"] { background: var(--navy-700); border-color: var(--navy-700); color: var(--text-inverse); }
+.chip-btn > span:last-child { opacity: 0.75; font-variant-numeric: tabular-nums; }
+.chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
+.gps-xls { margin-left: var(--s-2); gap: 3px; vertical-align: middle; }
