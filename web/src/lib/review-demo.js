@@ -80,6 +80,9 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
     },
     add(info, geojson = null) {
       const now = new Date().toISOString();
+      const norm = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const prevPublished = records.find(r => r.estado === 'publicada' && (norm(r.titulo) === norm(info.titulo) || norm(r.capa) === norm(info.titulo)));
+
       const item = {
         id: info.id || `carga-${Date.now()}`,
         titulo: info.titulo,
@@ -99,9 +102,12 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
         entidades: info.entidades || (geojson?.features?.length || 0),
         nota: '',
         transiciones: NEXT.en_revision,
+        reemplazaId: prevPublished ? prevPublished.id : null,
+        reemplazaTitulo: prevPublished ? prevPublished.titulo : null,
         archivos: info.archivos?.length ? info.archivos : [{ nombre: `${info.titulo}.geojson`, tam: 1024, sha256: '0'.repeat(64) }],
         estudio: info.estudio || {},
         revision: [
+          ...(prevPublished ? [['info', 'Actualización de capa publicada', `Ya existe una versión previa publicada («${prevPublished.titulo}»). Al publicarse esta nueva versión, la anterior se archivará automáticamente.`]] : []),
           ['ok', 'Validación de estructura completada', 'El archivo cumple con la geometría y esquema requeridos.'],
           ['info', 'Vista previa disponible', 'Geometría validada para visualización cartográfica.'],
           ['info', 'En espera de revisión', 'Esperando aprobación de la persona administradora.']
@@ -114,6 +120,12 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
       }
       return clone(item);
     },
+    findPublished(titulo, capa, excludeId = null) {
+      const norm = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const t = norm(titulo);
+      const c = norm(capa);
+      return records.find(r => r.id !== excludeId && r.estado === 'publicada' && (norm(r.titulo) === t || norm(r.capa) === c)) || null;
+    },
     publishedList() {
       return clone(records.filter(r => r.estado === 'publicada'));
     },
@@ -123,9 +135,41 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
       if (['requiere_correccion', 'archivada'].includes(estado) && !nota.trim()) throw new Error('Escribe el motivo.');
       const fecha = new Date().toISOString();
       Object.assign(item, { estado, estadoTexto: STATES[estado], transiciones: NEXT[estado], nota: nota.trim(), actualizada: fecha, revisor: usuario });
-      if (estado === 'publicada') item.publicada = fecha;
+      if (estado === 'publicada') {
+        item.publicada = fecha;
+        // Archivar automáticamente versiones anteriores publicadas de la misma capa
+        const norm = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const t = norm(item.titulo);
+        const c = norm(item.capa);
+        records.forEach(prev => {
+          if (prev.id !== item.id && prev.estado === 'publicada' && (norm(prev.titulo) === t || norm(prev.capa) === c || prev.id === item.reemplazaId)) {
+            prev.estado = 'archivada';
+            prev.estadoTexto = STATES.archivada;
+            prev.transiciones = NEXT.archivada;
+            prev.actualizada = fecha;
+            prev.nota = `Archivada automáticamente al publicarse una versión más reciente («${item.titulo}»).`;
+            prev.historial.push({
+              accion: 'capa_reemplazada',
+              fecha,
+              usuario,
+              detalle: { nota: `Sustituida por nueva versión publicada («${item.titulo}»)` }
+            });
+          }
+        });
+      }
       item.historial.push({ accion: EVENTS[estado], fecha, usuario, detalle: { nota: nota.trim() } });
       return clone(item);
+    },
+    delete(id) {
+      const idx = records.findIndex(r => r.id === id);
+      if (idx === -1) throw new Error('No se encontró la carga.');
+      const item = records[idx];
+      if (item.estado !== 'archivada') {
+        throw new Error('Solo se pueden eliminar capas que hayan sido archivadas previamente.');
+      }
+      records.splice(idx, 1);
+      geometries.delete(id);
+      return true;
     },
     reset() { records = seed(); geometries.clear(); }
   };

@@ -32,7 +32,8 @@ const fmtLabel = f => FORMAT_LABEL[f] || f || '—';
 const ACCION_TEXTO = {
   acceso: 'Inició sesión', carga_recibida: 'Carga recibida en cuarentena', carga_en_revision: 'Superó la revisión automática',
   carga_rechazada: 'No superó la revisión automática', carga_aprobada: 'Aprobada', carga_devuelta: 'Devuelta para corrección',
-  capa_publicada: 'Publicada', capa_retirada: 'Retirada de DeltaMap-CEDESU', carga_archivada: 'Archivada', carga_reabierta: 'Revisión reabierta'
+  capa_publicada: 'Publicada', capa_retirada: 'Retirada de DeltaMap-CEDESU', carga_archivada: 'Archivada', carga_reabierta: 'Revisión reabierta',
+  capa_reemplazada: 'Archivada por actualización de capa'
 };
 
 const filter = ref('en_revision');
@@ -96,7 +97,16 @@ async function transition(estado) {
   const d = detail.value;
   if (!d || busy.value) return;
   if (a.nota && !nota.value.trim()) { showToast('info', 'Escribe el motivo', `Para «${a.label.toLowerCase()}» hace falta una nota que verá quien la envió.`); document.getElementById('reviewNote')?.focus(); return; }
-  if (a.confirm && !(await confirmAction({ title: `${a.label} «${d.titulo}»`, text: a.confirm, ok: a.label }))) return;
+
+  let confirmText = a.confirm;
+  if (estado === 'publicada') {
+    const conflict = demoMode ? reviewDemo.findPublished(d.titulo, d.capa, d.id) : null;
+    if (conflict) {
+      confirmText = `Ya existe una versión publicada de esta capa («${conflict.titulo}»). Al publicar esta versión, la anterior se archivará automáticamente y quedará en Archivadas para consulta o eliminación.`;
+    }
+  }
+  if (confirmText && !(await confirmAction({ title: `${a.label} «${d.titulo}»`, text: confirmText, ok: a.label }))) return;
+
   busy.value = true;
   try {
     detail.value = demoMode
@@ -110,6 +120,40 @@ async function transition(estado) {
   } catch (err) { showToast('error', 'No se cambió el estado', errorText(err)); }
   finally { busy.value = false; }
 }
+
+async function deleteLayer(id) {
+  const d = detail.value;
+  if (!d || d.estado !== 'archivada' || busy.value) return;
+  const ok = await confirmAction({
+    title: `Eliminar definitivamente «${d.titulo}»`,
+    text: `Esta acción eliminará de forma permanente el registro archivado y sus archivos asociados. Esta operación no se puede deshacer.`,
+    ok: 'Eliminar definitivamente',
+    danger: true
+  });
+  if (!ok) return;
+  busy.value = true;
+  try {
+    if (demoMode) {
+      reviewDemo.delete(d.id);
+    } else {
+      await api(`/cargas/${d.id}`, { method: 'DELETE' });
+    }
+    showToast('success', 'Capa eliminada', `Se eliminó definitivamente «${d.titulo}».`);
+    selectedId.value = null;
+    detail.value = null;
+    geojson.value = null;
+    await loadList();
+  } catch (err) { showToast('error', 'No se pudo eliminar la carga', errorText(err)); }
+  finally { busy.value = false; }
+}
+
+const publishedConflict = computed(() => {
+  if (!detail.value || ['publicada', 'archivada'].includes(detail.value.estado)) return null;
+  if (demoMode) {
+    return reviewDemo.findPublished(detail.value.titulo, detail.value.capa, detail.value.id);
+  }
+  return null;
+});
 
 const studyRows = computed(() => {
   const s = detail.value?.estudio || {};
@@ -173,6 +217,14 @@ onMounted(loadList);
                   <span class="badge" :class="BADGE[detail.estado]">{{ detail.estadoTexto }}</span>
                 </div>
                 <div class="panel-body">
+                  <div v-if="publishedConflict" class="callout warn">
+                    <Icon name="alert-triangle" />
+                    <span><b>Actualización de capa:</b> Ya existe una versión publicada («{{ publishedConflict.titulo }}»). Al publicar esta versión, la anterior se archivará automáticamente y quedará en Archivadas para consulta o eliminación definitiva.</span>
+                  </div>
+                  <div v-if="detail.estado === 'archivada'" class="callout info">
+                    <Icon name="folder-open" />
+                    <span><b>Capa archivada:</b> Esta capa no está visible en el mapa ni en el catálogo público. Puedes reabrir su revisión o eliminarla definitivamente del sistema.</span>
+                  </div>
                   <div v-if="detail.nota" class="callout" :class="detail.estado === 'requiere_correccion' ? 'warn' : 'info'"><Icon name="info" /><span><b>Nota de revisión.</b> {{ detail.nota }}</span></div>
                   <PreviewMap v-if="geojson" class="review-map" :geojson="geojson" />
                   <div class="review-cols">
@@ -195,14 +247,17 @@ onMounted(loadList);
                     </li>
                   </ol>
                 </div>
-                <div v-if="isAdmin && detail.transiciones.length" class="panel-foot review-actions">
-                  <div class="field review-note">
+                <div v-if="isAdmin && (detail.transiciones.length || detail.estado === 'archivada')" class="panel-foot review-actions">
+                  <div v-if="detail.transiciones.some(t => ACTIONS[t]?.nota)" class="field review-note">
                     <label for="reviewNote">Nota (obligatoria para devolver o archivar)</label>
                     <textarea id="reviewNote" v-model="nota" class="textarea" maxlength="2000" rows="2" placeholder="Por ejemplo: falta la fuente original del levantamiento"></textarea>
                   </div>
                   <div class="review-buttons">
                     <button v-for="t in detail.transiciones" :key="t" type="button" class="btn btn-sm" :class="ACTIONS[t].cls" :disabled="busy" @click="transition(t)">
                       <Icon :name="ACTIONS[t].icon" />{{ ACTIONS[t].label }}
+                    </button>
+                    <button v-if="detail.estado === 'archivada'" type="button" class="btn btn-sm btn-quiet danger" :disabled="busy" @click="deleteLayer(detail.id)">
+                      <Icon name="trash-2" />Eliminar definitivamente
                     </button>
                   </div>
                 </div>

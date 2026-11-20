@@ -331,6 +331,26 @@ async function harvestStudy(it, result) {
   found.filter(Boolean).forEach(info => noteInfo(it, info));
   inferTheme(it);
   autoGenerateStudy(it);
+  checkPublishedVersion(it);
+}
+
+/* Verificación de versión previa publicada: si ya existe, se informa que se archivará la anterior */
+function checkPublishedVersion(it) {
+  const norm = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const name = norm(it.layerName);
+  let prev = null;
+  if (!hasApi()) {
+    prev = reviewDemo.findPublished(it.layerName, it.layerName);
+  } else {
+    prev = layers.entries.find(e => e.remote && norm(e.name) === name);
+  }
+  if (prev) {
+    it.checks.push([
+      'info',
+      'Actualización de capa existente',
+      `Ya existe una versión publicada («${prev.titulo || prev.name}»). Al publicarse esta versión, la anterior se archivará automáticamente y luego podrá eliminarse si se desea.`
+    ]);
+  }
 }
 
 /* Generación automática de la ficha de estudio institucional (perfil ISO 19115) */
