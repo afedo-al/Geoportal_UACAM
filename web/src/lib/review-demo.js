@@ -71,9 +71,51 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
     detail: id => clone(get(id)),
     async geometry(id) {
       const item = get(id);
-      if (!geometries.has(id)) geometries.set(id, loadGeoJSON(item.geojsonFile));
+      if (!geometries.has(id)) {
+        if (item.geojsonFile) geometries.set(id, loadGeoJSON(item.geojsonFile));
+        else return null;
+      }
       try { return clone(await geometries.get(id)); }
       catch (error) { geometries.delete(id); throw error; }
+    },
+    add(info, geojson = null) {
+      const now = new Date().toISOString();
+      const item = {
+        id: info.id || `carga-${Date.now()}`,
+        titulo: info.titulo,
+        capa: info.titulo,
+        formato: info.formato || 'geojson',
+        estado: 'en_revision',
+        estadoTexto: STATES.en_revision,
+        acceso: info.estudio?.sAccess || 'Pública',
+        autor: info.usuario || 'Administración',
+        creada: now,
+        actualizada: now,
+        revisor: '',
+        publicada: null,
+        crs: info.crs || 'EPSG:4326 · WGS 84',
+        resolucion: 'Cargada desde la plataforma',
+        tieneGeometria: !!geojson,
+        entidades: info.entidades || (geojson?.features?.length || 0),
+        nota: '',
+        transiciones: NEXT.en_revision,
+        archivos: info.archivos?.length ? info.archivos : [{ nombre: `${info.titulo}.geojson`, tam: 1024, sha256: '0'.repeat(64) }],
+        estudio: info.estudio || {},
+        revision: [
+          ['ok', 'Validación de estructura completada', 'El archivo cumple con la geometría y esquema requeridos.'],
+          ['info', 'Vista previa disponible', 'Geometría validada para visualización cartográfica.'],
+          ['info', 'En espera de revisión', 'Esperando aprobación de la persona administradora.']
+        ],
+        historial: [{ accion: 'carga_en_revision', fecha: now, usuario: info.usuario || 'Administración', detalle: {} }]
+      };
+      records.unshift(item);
+      if (geojson) {
+        geometries.set(item.id, Promise.resolve(geojson));
+      }
+      return clone(item);
+    },
+    publishedList() {
+      return clone(records.filter(r => r.estado === 'publicada'));
     },
     transition(id, estado, nota = '', usuario = 'Administración · demostración') {
       const item = get(id);

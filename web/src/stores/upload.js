@@ -19,6 +19,7 @@ import {
   metaFromStudy, openStudyEditor, onStudyDeleted, resetAuto, FIELD_LABELS
 } from './studies.js';
 import { router } from '../router.js';
+import { reviewDemo } from '../lib/review-demo.js';
 
 const SHP_PARTS = ['shp', 'shx', 'dbf', 'prj', 'cpg', 'qpj', 'sbn', 'sbx', 'xml'];
 
@@ -709,10 +710,22 @@ async function sendLayers(list) {
   if (!hasApi()) {
     list.forEach(id => {
       const it = byId(id);
-      it.state = 'failed';
-      it.message = msg('cloud-off', ['b', 'No se envió.'], ['t', ' Este prototipo no tiene configurado un servidor de publicación ('], ['code', 'VITE_API_BASE'], ['t', '). Nada se ha publicado; puedes verla en el mapa como capa de sesión.']);
+      it.state = 'sent';
+      const study = studyPayload(studyById(it.id));
+      const added = reviewDemo.add({
+        id: it.id,
+        titulo: it.layerName,
+        formato: it.format || it.srcFormat || 'geojson',
+        entidades: it.geojson?.features?.length || 0,
+        estudio: study,
+        crs: it.crs,
+        archivos: Object.values(it.parts).filter(Boolean).map(f => ({ nombre: f.name, tam: f.size, sha256: it.hash || '0'.repeat(64) }))
+      }, it.geojson);
+      it.serverId = added.id;
+      it.message = msg('check-circle-2', ['b', 'Enviada a revisión.'], ['t', ' Quedó en cuarentena. Una persona administradora la aprueba antes de publicarla (pantalla Revisión).']);
     });
-    showToast('error', 'Envío no disponible', 'No hay servidor de publicación configurado. Nada se publicó.');
+    showToast('success', list.length === 1 ? 'Capa enviada a revisión' : `${list.length} capas enviadas a revisión`,
+      'Ya está disponible en la pantalla Revisión para su aprobación.');
     return;
   }
   const done = startTask(list.length === 1 ? `Enviando ${byId(list[0])?.layerName || 'capa'}` : 'Enviando lote');

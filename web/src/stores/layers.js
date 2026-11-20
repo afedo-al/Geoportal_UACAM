@@ -151,10 +151,24 @@ let pubQueue = Promise.resolve();
 export const loadPublished = () => (pubQueue = pubQueue.then(syncPublished, syncPublished));
 
 async function syncPublished() {
-  if (!hasApi()) return;
   let list;
-  try { list = (await api('/capas', { quiet401: true })).capas || []; }
-  catch { return; }   // sin servidor: el mapa sigue con los datos de prueba
+  if (hasApi()) {
+    try { list = (await api('/capas', { quiet401: true })).capas || []; }
+    catch { return; }   // sin servidor: el mapa sigue con los datos de prueba
+  } else {
+    try {
+      const { reviewDemo } = await import('../lib/review-demo.js');
+      list = (reviewDemo.publishedList() || []).map(c => ({
+        id: c.id,
+        nombre: c.titulo,
+        entidades: c.entidades,
+        publicada: c.publicada,
+        estudio: c.estudio,
+        crs: c.crs,
+        bbox: c.bbox
+      }));
+    } catch { list = []; }
+  }
   const keep = new Set(list.map(c => `pub:${c.id}`));
   layers.entries.filter(e => e.remote && !keep.has(e.id)).forEach(e => {
     removeLayer(e.olLayer);
@@ -276,9 +290,16 @@ export function loadDataset(id) {
   const done = startTask(`Cargando ${e.name}`);
   const p = (async () => {
     try {
-      const r = await fetch(e.def.url);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const gj = await r.json();
+      let gj;
+      if (e.remote && !hasApi()) {
+        const { reviewDemo } = await import('../lib/review-demo.js');
+        gj = await reviewDemo.geometry(id.replace(/^pub:/, ''));
+        if (!gj) throw new Error('No se encontró la geometría en el flujo de publicación.');
+      } else {
+        const r = await fetch(e.def.url);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        gj = await r.json();
+      }
       fillSource(id, e.olLayer, gj);
       e.geojson = markRaw(gj);
       e.count = gj.features.length;
