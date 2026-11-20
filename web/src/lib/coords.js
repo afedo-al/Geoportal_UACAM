@@ -19,3 +19,22 @@ export function coordError(value, axis) {
 }
 
 export const inWorkArea = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) && lat >= LAT[0] && lat <= LAT[1] && lon >= LON[0] && lon <= LON[1];
+
+export function altitudeError(value) {
+  const texto = String(value ?? '').trim().replace(',', '.');
+
+  // La altitud es opcional.
+  if (!texto) return '';
+
+  const altitud = Number(texto);
+
+  if (!Number.isFinite(altitud)) {
+    return 'La altitud debe ser un número válido.';
+  }
+
+  if (altitud < -500 || altitud > 9000) {
+    return 'La altitud debe estar entre -500 y 9,000 metros.';
+  }
+
+  return '';
+}

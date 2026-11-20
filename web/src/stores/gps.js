@@ -6,7 +6,13 @@ import { setGpsMarkers } from './map.js';
 import { showToast, startTask, confirmAction } from './ui.js';
 import { onSessionStart, onSessionEnd } from './session.js';
 import { api, apiHref, hasApi, ApiError } from '../lib/api.js';
-import { LAT, LON, coordError, inWorkArea } from '../lib/coords.js';
+import {
+  LAT,
+  LON,
+  coordError,
+  altitudeError,
+  inWorkArea
+} from '../lib/coords.js';
 
 /* remote: los puntos viven en el servidor */
 export const REMOTE = hasApi();
@@ -20,25 +26,92 @@ const GPS_VERSION = 'v6-empty';
 const PHOTO_MAX = 2 * 1024 * 1024;
 
 const now = () => new Date();
-const emptyForm = () => ({ lat: '19.84530', lon: '-90.52283', name: '', date: now().toISOString().slice(0, 10), time: now().toTimeString().slice(0, 5), type: 'Muestra de suelo', description: '', photo: '', photoFile: null });
+const emptyForm = () => ({
+  lat: '19.84530',
+  lon: '-90.52283',
+  altitude: '',
+  property: '',
+  name: '',
+  date: now().toISOString().slice(0, 10),
+  time: now().toTimeString().slice(0, 5),
+  type: 'Muestra de suelo',
+  description: '',
+  photo: '',
+  photoFile: null
+});
 
-/* errors: mensaje junto a cada campo; editing: id del punto en edición; source: de dónde salieron las coordenadas */
-export const gps = reactive({ points: [], counter: 0, form: emptyForm(), errors: { lat: '', lon: '' }, editing: null, selected: null, source: 'inicial', locating: false, photoReset: 0 });
+export const gps = reactive({
+  points: [],
+  counter: 0,
+  form: emptyForm(),
+
+  errors: {
+    lat: '',
+    lon: '',
+    altitude: ''
+  },
+
+  editing: null,
+  selected: null,
+  source: 'inicial',
+  locating: false,
+  photoReset: 0
+});
 
 export function validateCoords() {
   gps.errors.lat = coordError(gps.form.lat, 'lat');
   gps.errors.lon = coordError(gps.form.lon, 'lon');
-  return !gps.errors.lat && !gps.errors.lon;
+
+  gps.errors.altitude = altitudeError(
+    gps.form.altitude
+  );
+
+  return (
+    !gps.errors.lat &&
+    !gps.errors.lon &&
+    !gps.errors.altitude
+  );
 }
 
 function sanitizePoint(pt) {
   if (!pt || typeof pt !== 'object') return null;
-  const lat = Number(pt.lat), lon = Number(pt.lon);
-  if (!inWorkArea(lat, lon)) return null;
-  const str = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, n);
+
+  const lat = Number(pt.lat);
+  const lon = Number(pt.lon);
+
+  if (!inWorkArea(lat, lon) || altitudeError(pt.altitude)) {
+    return null;
+  }
+
+  const str = (value, max) =>
+    String(value ?? '')
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .slice(0, max);
+
   return {
-    id: str(pt.id, 40), name: str(pt.name, 120), lat, lon, type: str(pt.type, 60), description: str(pt.description, 1000),
-    date: /^\d{4}-\d{2}-\d{2}$/.test(pt.date) ? pt.date : '', time: /^\d{2}:\d{2}/.test(String(pt.time)) ? String(pt.time).slice(0, 5) : '',
+    id: str(pt.id, 40),
+    name: str(pt.name, 120),
+
+    lat,
+    lon,
+
+    altitude:
+      pt.altitude === '' || pt.altitude == null
+        ? null
+        : Number(String(pt.altitude).replace(',', '.')),
+
+    property: str(pt.property, 120),
+    type: str(pt.type, 60),
+    description: str(pt.description, 1000),
+
+    date: /^\d{4}-\d{2}-\d{2}$/.test(pt.date)
+      ? pt.date
+      : '',
+
+    time: /^\d{2}:\d{2}/.test(String(pt.time))
+      ? String(pt.time).slice(0, 5)
+      : '',
+
     photo: safePhotoURL(pt.photo)
   };
 }
@@ -121,27 +194,86 @@ export async function selectPhoto(file) {
 export function setManualCoordinates(lat, lon, source = 'mapa') {
   gps.form.lat = Number(lat).toFixed(6);
   gps.form.lon = Number(lon).toFixed(6);
+
+  // Seleccionar en el mapa no proporciona altitud.
+  if (source === 'mapa') {
+    gps.form.altitude = '';
+  }
+
   gps.source = source;
   validateCoords();
 }
 
-/* Ubicación del dispositivo: solo cuando la persona la pide; no se envía a ningún servidor */
 export function useDeviceLocation() {
-  if (!('geolocation' in navigator)) return showToast('error', 'Ubicación no disponible', 'Este navegador no permite consultar la ubicación.');
+  if (!('geolocation' in navigator)) {
+    return showToast(
+      'error',
+      'Ubicación no disponible',
+      'Este navegador no permite consultar la ubicación.'
+    );
+  }
+
   gps.locating = true;
-  navigator.geolocation.getCurrentPosition(pos => {
-    gps.locating = false;
-    setManualCoordinates(pos.coords.latitude, pos.coords.longitude, 'dispositivo');
-    if (gps.errors.lat || gps.errors.lon) showToast('warn', 'Tu ubicación está fuera del área de trabajo', 'Se escribió en el formulario, pero el punto solo se guarda si está en Campeche o sus alrededores.');
-  }, err => {
-    gps.locating = false;
-    showToast('error', 'No se obtuvo la ubicación', err.code === 1 ? 'El permiso de ubicación está denegado para este sitio.' : 'El dispositivo no respondió a tiempo. Inténtalo de nuevo o elige el punto en el mapa.');
-  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      gps.locating = false;
+
+      setManualCoordinates(
+        pos.coords.latitude,
+        pos.coords.longitude,
+        'dispositivo'
+      );
+
+      gps.form.altitude = Number.isFinite(pos.coords.altitude)
+        ? pos.coords.altitude.toFixed(2)
+        : '';
+
+      validateCoords();
+
+      if (gps.errors.lat || gps.errors.lon) {
+        showToast(
+          'warn',
+          'Ubicación fuera del área de trabajo',
+          'El punto está fuera del área geográfica configurada.'
+        );
+      }
+    },
+
+    (err) => {
+      gps.locating = false;
+
+      showToast(
+        'error',
+        'No se obtuvo la ubicación',
+        err.code === 1
+          ? 'El permiso de ubicación fue denegado.'
+          : 'No fue posible obtener las coordenadas.'
+      );
+    },
+
+    {
+      enableHighAccuracy: true,
+      timeout: 15000,
+      maximumAge: 0
+    }
+  );
 }
 
 function resetForm() {
-  const f = emptyForm();
-  Object.assign(gps.form, { name: '', description: '', photo: '', photoFile: null, date: f.date, time: f.time });
+  const nuevo = emptyForm();
+
+  Object.assign(gps.form, {
+    name: '',
+    property: '',
+    altitude: '',
+    description: '',
+    photo: '',
+    photoFile: null,
+    date: nuevo.date,
+    time: nuevo.time
+  });
+
   gps.editing = null;
   gps.photoReset++;
 }
@@ -152,11 +284,36 @@ export function removePhoto() {
 
 /* Edición: el formulario toma los datos del punto y «Guardar cambios» lo reemplaza en su lugar */
 export function editPoint(id) {
-  const p = gps.points.find(x => x.id === id);
-  if (!p) return;
-  Object.assign(gps.form, { lat: String(p.lat), lon: String(p.lon), name: p.name, date: p.date, time: p.time, type: p.type, description: p.description, photo: p.photo, photoFile: null });
-  gps.editing = id; gps.selected = id; gps.source = 'punto';
-  gps.errors.lat = ''; gps.errors.lon = '';
+  const punto = gps.points.find(p => p.id === id);
+
+  if (!punto) return;
+
+  Object.assign(gps.form, {
+    lat: String(punto.lat),
+    lon: String(punto.lon),
+
+    altitude: punto.altitude == null
+      ? ''
+      : String(punto.altitude),
+
+    property: punto.property || '',
+    name: punto.name,
+    date: punto.date,
+    time: punto.time,
+    type: punto.type,
+    description: punto.description,
+    photo: punto.photo,
+    photoFile: null
+  });
+
+  gps.editing = id;
+  gps.selected = id;
+  gps.source = 'punto';
+
+  gps.errors.lat = '';
+  gps.errors.lon = '';
+  gps.errors.altitude = '';
+
   gps.photoReset++;
 }
 export function cancelEdit() { resetForm(); }
@@ -190,7 +347,25 @@ export async function addPoint() {
     if (problem) { showToast('error', 'Fotografía no válida', problem); return false; }
     photo = await readDataURL(f.photoFile);
   }
-  const fields = { lat, lon, type: f.type || 'Punto de referencia', description: f.description.trim(), date: f.date || now().toISOString().slice(0, 10), time: f.time || now().toTimeString().slice(0, 5), photo };
+  const fields = {
+    lat,
+    lon,
+
+    altitude:
+      f.altitude === ''
+        ? null
+        : Number(String(f.altitude).replace(',', '.')),
+
+    property: f.property.trim(),
+
+    type: f.type || 'Punto de referencia',
+    description: f.description.trim(),
+
+    date: f.date || now().toISOString().slice(0, 10),
+    time: f.time || now().toTimeString().slice(0, 5),
+
+    photo
+  };
   if (REMOTE) return saveRemote(f, fields);
   if (gps.editing) {
     const i = gps.points.findIndex(x => x.id === gps.editing);
@@ -243,8 +418,35 @@ async function saveRemote(f, fields) {
 export async function exportCSV() {
   if (!gps.points.length) return showToast('info', 'Sin datos', 'No hay puntos para exportar.');
   const FC = await fileCheck();
-  const header = ['ID', 'Nombre', 'Latitud', 'Longitud', 'Tipo', 'Descripción', 'Fecha', 'Hora', 'Fotografía'];
-  const rows = gps.points.map(p => [p.id, p.name, p.lat, p.lon, p.type, p.description, p.date, p.time, p.photo && /^https?:\/\//i.test(p.photo) ? p.photo : '']);
+  const header = [
+    'ID',
+    'Nombre',
+    'Latitud',
+    'Longitud',
+    'Altitud (m)',
+    'Propiedad o predio',
+    'Tipo',
+    'Descripción',
+    'Fecha',
+    'Hora',
+    'Fotografía'
+  ];
+
+  const rows = gps.points.map(p => [
+    p.id,
+    p.name,
+    p.lat,
+    p.lon,
+    p.altitude ?? '',
+    p.property || '',
+    p.type,
+    p.description,
+    p.date,
+    p.time,
+    p.photo && /^https?:\/\//i.test(p.photo)
+      ? p.photo
+      : ''
+  ]);
   const csv = [header, ...rows].map(r => r.map(v => `"${FC.safeCell(v).replace(/"/g, '""')}"`).join(',')).join('\n');
   downloadBlob(new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' }), 'puntos_campo_cedesu.csv');
 }
@@ -273,18 +475,81 @@ export async function importExcel(file) {
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
     const imported = [], skipped = [];
     rows.forEach((row, index) => {
-      const lat = Number(rowValue(row, ['latitud', 'latitude', 'lat']));
-      const lon = Number(rowValue(row, ['longitud', 'longitude', 'lon', 'lng']));
-      if (!inWorkArea(lat, lon)) { skipped.push(index + 2); return; }
+      const lat = Number(
+        rowValue(row, ['latitud', 'latitude', 'lat'])
+      );
+
+      const lon = Number(
+        rowValue(row, ['longitud', 'longitude', 'lon', 'lng'])
+      );
+
+      const altitude = rowValue(row, [
+        'altitud',
+        'altura',
+        'elevacion',
+        'altitude',
+        'altitud(m)'
+      ]);
+
+      if (!inWorkArea(lat, lon) || altitudeError(altitude)) {
+        skipped.push(index + 2);
+        return;
+      }
+
       const rawDate = rowValue(row, ['fecha', 'date']);
+
       imported.push({
-        id: String(rowValue(row, ['id', 'id_muestra', 'idpunto']) || `EXCEL-${gps.points.length + imported.length + 1}`),
-        name: String(rowValue(row, ['nombre', 'nombrepunto', 'punto', 'name']) || `Punto importado ${index + 1}`), lat, lon,
-        type: String(rowValue(row, ['tipo', 'tipomuestra', 'tipo_muestra', 'tipo_suelo']) || 'Punto de referencia'),
-        description: String(rowValue(row, ['descripcion', 'description', 'observaciones', 'observacion']) || ''),
-        date: rawDate instanceof Date ? rawDate.toISOString().slice(0, 10) : String(rawDate || now().toISOString().slice(0, 10)),
-        time: String(rowValue(row, ['hora', 'time']) || ''),
-        photo: String(rowValue(row, ['fotografia', 'foto', 'imagen', 'photo']) || '')
+        id: String(
+          rowValue(row, ['id', 'id_muestra', 'idpunto']) ||
+          `EXCEL-${gps.points.length + imported.length + 1}`
+        ),
+
+        name: String(
+          rowValue(row, ['nombre', 'nombrepunto', 'punto', 'name']) ||
+          `Punto importado ${index + 1}`
+        ),
+
+        lat,
+        lon,
+
+        altitude:
+          altitude === '' || altitude == null
+            ? null
+            : Number(String(altitude).replace(',', '.')),
+
+        property: String(
+          rowValue(row, ['propiedad', 'predio', 'sitio', 'lugar']) || ''
+        ),
+
+        type: String(
+          rowValue(row, [
+            'tipo',
+            'tipomuestra',
+            'tipo_muestra',
+            'tipo_suelo'
+          ]) || 'Punto de referencia'
+        ),
+
+        description: String(
+          rowValue(row, [
+            'descripcion',
+            'description',
+            'observaciones',
+            'observacion'
+          ]) || ''
+        ),
+
+        date: rawDate instanceof Date
+          ? rawDate.toISOString().slice(0, 10)
+          : String(rawDate || now().toISOString().slice(0, 10)),
+
+        time: String(
+          rowValue(row, ['hora', 'time']) || ''
+        ),
+
+        photo: String(
+          rowValue(row, ['fotografia', 'foto', 'imagen', 'photo']) || ''
+        )
       });
     });
     if (skipped.length) {

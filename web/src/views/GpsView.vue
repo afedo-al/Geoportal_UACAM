@@ -36,6 +36,61 @@ const coordLabel = computed(() => {
   return Number.isFinite(lat) && Number.isFinite(lon) ? formatCoord(lat, lon, coordMode.value) : '';
 });
 
+const threeFormats = computed(() => {
+  if (!coordOk.value) return [];
+
+  const lat = Number(gps.form.lat);
+  const lon = Number(gps.form.lon);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return [];
+  }
+
+  return [
+    {
+      key: 'wgs84',
+      title: 'Coordenadas geográficas WGS 84',
+      value: `${lat.toFixed(6)}, ${lon.toFixed(6)}`
+    },
+    {
+      key: 'utm15',
+      title: 'UTM Zona 15N',
+      value: formatCoord(lat, lon, 'utm15')
+    },
+    {
+      key: 'utm16',
+      title: 'UTM Zona 16N',
+      value: formatCoord(lat, lon, 'utm16')
+    }
+  ];
+});
+
+async function copyFormats() {
+  const texto = threeFormats.value
+    .map(c => `${c.title}: ${c.value}`)
+    .join('\n');
+
+  const altitud = gps.form.altitude !== ''
+    ? `\nAltitud: ${gps.form.altitude} m`
+    : '';
+
+  try {
+    await navigator.clipboard.writeText(texto + altitud);
+
+    showToast(
+      'success',
+      'Coordenadas copiadas',
+      'Los tres formatos se copiaron al portapapeles.'
+    );
+  } catch {
+    showToast(
+      'warn',
+      'No fue posible copiar',
+      'Selecciona las coordenadas manualmente.'
+    );
+  }
+}
+
 watch(() => gps.photoReset, () => { if (photoEl.value) photoEl.value.value = ''; });
 function syncCoordInput() {
   const lat = Number(gps.form.lat), lon = Number(gps.form.lon);
@@ -155,16 +210,99 @@ function showAll() {
                     <p v-if="gps.errors.lat" id="latErr" class="error-text"><Icon name="alert-circle" />{{ gps.errors.lat }}</p>
                   </div>
                 </div>
+                <div class="field">
+                  <label for="manualAltitude">
+                    Altitud (metros)
+                    <span class="hint">· opcional</span>
+                  </label>
+
+                  <input
+                    id="manualAltitude"
+                    v-model="gps.form.altitude"
+                    type="number"
+                    step="any"
+                    min="-500"
+                    max="9000"
+                    inputmode="decimal"
+                    class="input mono"
+                    placeholder="Ej. 12.5"
+                    :aria-invalid="String(!!gps.errors.altitude)"
+                    @input="validateCoords"
+                  />
+
+                  <p v-if="gps.errors.altitude" class="error-text">
+                    <Icon name="alert-circle" />
+                    {{ gps.errors.altitude }}
+                  </p>
+
+                  <span class="hint">
+                    La altitud es opcional. Puede capturarse manualmente
+                    o tomarse del dispositivo cuando esté disponible.
+                  </span>
+                </div>
+
                 <p id="coordHint" class="coord-hint">
                   <span class="coord-src" :data-ok="String(coordOk)"><Icon :name="coordOk ? 'map-pin' : 'info'" class="ic-14" />{{ SOURCES[gps.source] || SOURCES.manual }}</span>
                   <span v-if="coordOk" class="mono coord-read">{{ coordLabel }}</span>
                 </p>
+
+                <div v-if="threeFormats.length" class="gps-conversions">
+
+                  <div class="gps-conversions-head">
+                    <strong>Coordenadas del punto seleccionado</strong>
+
+                    <button
+                      type="button"
+                      class="btn btn-quiet btn-sm"
+                      @click="copyFormats"
+                    >
+                      <Icon name="copy" />
+                      Copiar
+                    </button>
+                  </div>
+
+                  <dl>
+                    <div v-for="formato in threeFormats" :key="formato.key">
+                      <dt>{{ formato.title }}</dt>
+                      <dd class="mono">{{ formato.value }}</dd>
+                    </div>
+                  </dl>
+
+                  <p class="hint">
+                    Las zonas UTM son dos representaciones de
+                    la misma ubicación, no puntos diferentes.
+                  </p>
+
+                </div>
+
                 <button type="button" class="btn btn-secondary btn-sm align-start" :disabled="gps.locating" @click="useDeviceLocation">
                   <Icon :name="gps.locating ? 'loader-2' : 'locate'" :class="{ 'ic-spin': gps.locating }" />{{ gps.locating ? 'Obteniendo ubicación…' : 'Usar mi ubicación' }}
                 </button>
               </fieldset>
 
               <div class="field"><label for="manualName">Nombre del punto</label><input id="manualName" v-model="gps.form.name" class="input" maxlength="120" placeholder="Ej. Muestra de suelo norte"></div>
+
+              <div class="field">
+                <label for="manualProperty">
+                  Propiedad o predio
+                  <span class="hint">· opcional</span>
+                </label>
+
+                <input
+                  id="manualProperty"
+                  v-model="gps.form.property"
+                  type="text"
+                  maxlength="120"
+                  class="input"
+                  placeholder="Ej. Parcela experimental A"
+                />
+
+                <span class="hint">
+                  Este dato puede modificarse posteriormente
+                  al editar las propiedades del punto.
+                </span>
+              </div>
+
               <div class="grid2">
                 <div class="field"><label for="manualDate">Fecha</label><input id="manualDate" v-model="gps.form.date" type="date" class="input"></div>
                 <div class="field"><label for="manualTime">Hora</label><input id="manualTime" v-model="gps.form.time" type="time" class="input"></div>
@@ -209,7 +347,18 @@ function showAll() {
                 <button type="button" class="gps-item" :aria-pressed="String(gps.selected === p.id)" @click="onSelect(p.id)">
                   <span class="t">{{ p.name }}</span>
                   <span class="s">{{ p.type }} · {{ fmtDay(p.date) }} {{ p.time }}</span>
-                  <span class="s mono">{{ Number(p.lat).toFixed(5) }}, {{ Number(p.lon).toFixed(5) }}</span>
+                  <span class="s mono">
+                    {{ Number(p.lat).toFixed(5) }},
+                    {{ Number(p.lon).toFixed(5) }}
+
+                    <template v-if="p.altitude != null">
+                      · {{ p.altitude }} m
+                    </template>
+                  </span>
+
+                  <span v-if="p.property" class="s">
+                    Propiedad/predio: {{ p.property }}
+                  </span>
                 </button>
                 <span class="gps-actions">
                   <button type="button" class="icon-btn" :aria-label="`Ver ${p.name} en el mapa principal`" data-tip="Ver en el mapa" @click="focusPoint(p)"><Icon name="map" /></button>
@@ -245,3 +394,54 @@ function showAll() {
     </div>
   </section>
 </template>
+
+<style scoped>
+.gps-conversions {
+  border: 1px solid #d7e0e5;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 16px;
+  margin: 12px 0;
+}
+
+.gps-conversions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.gps-conversions dl {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.gps-conversions dl > div {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e5ebee;
+}
+
+.gps-conversions dt {
+  color: #536975;
+  font-size: 12px;
+}
+
+.gps-conversions dd {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.gps-conversions .hint {
+  font-size: 12px;
+  line-height: 1.6;
+}
+</style>

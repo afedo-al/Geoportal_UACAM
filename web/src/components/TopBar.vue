@@ -13,11 +13,47 @@ const route = useRoute();
 const router = useRouter();
 
 const NAV = [
-  { name: 'mapa', to: '/', icon: 'map', label: 'Mapa' },
-  { name: 'catalogo', to: '/catalogo', icon: 'book-open', label: 'Catálogo', long: ' de estudios' },
-  { name: 'carga', to: '/carga', icon: 'upload', label: 'Carga', long: ' de datos', admin: true },
-  { name: 'gps', to: '/gps', icon: 'satellite-dish', label: 'Captura GPS', admin: true },
-  { name: 'revision', to: '/revision', icon: 'shield-check', label: 'Revisión', admin: true }
+  {
+    name: 'bienvenida',
+    to: '/bienvenida',
+    icon: 'home',
+    label: 'Inicio'
+  },
+  {
+    name: 'mapa',
+    to: '/',
+    icon: 'map',
+    label: 'Mapa'
+  },
+  {
+    name: 'catalogo',
+    to: '/catalogo',
+    icon: 'book-open',
+    label: 'Catálogo',
+    long: ' de estudios'
+  },
+  {
+    name: 'carga',
+    to: '/carga',
+    icon: 'upload',
+    label: 'Carga',
+    long: ' de datos',
+    admin: true
+  },
+  {
+    name: 'gps',
+    to: '/gps',
+    icon: 'satellite-dish',
+    label: 'Captura GPS',
+    admin: true
+  },
+  {
+    name: 'revision',
+    to: '/revision',
+    icon: 'shield-check',
+    label: 'Revisión',
+    admin: true
+  }
 ];
 const visibleNav = computed(() => NAV.filter(n => !n.admin || session.admin));
 const task = computed(() => ui.tasks.at(-1)?.label || '');
@@ -41,7 +77,11 @@ function sessionClick(e) {
 
 <template>
   <header class="topbar">
-    <a class="brand" href="#/" @click.prevent="router.push('/')">
+    <a
+  class="brand"
+  href="#/bienvenida"
+  @click.prevent="router.push('/bienvenida')"
+>
       <span class="brand-logos">
         <img class="uacam" :src="logoUacam" width="30" height="30" alt="">
         <img class="logo-cedesu" :src="logoCedesu" width="30" height="30" alt="">
