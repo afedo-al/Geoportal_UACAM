@@ -13,3 +13,17 @@ export const FIELD_LABELS = {
 };
 /* Longitud máxima de cada campo */
 export const FIELD_MAX = { sTitle: 200, sTheme: 60, sDate: 10, sResp: 200, sSource: 500, sLic: 60, sAccess: 20, sDesc: 4000, sLineage: 4000, sKeywords: 500 };
+
+/* Origen de un valor de la ficha, a partir del texto que guarda `rec.auto[campo]`.
+   Devuelve { key, label }: key sirve para el estilo (archivo, sugerido, defecto, generado, copiado). */
+export function originOf(auto) {
+  const a = String(auto || '');
+  if (!a) return null;
+  if (a.startsWith('metadatos')) return { key: 'archivo', label: 'Del archivo' };
+  if (a.startsWith('sugerido')) return { key: 'sugerido', label: 'Sugerido' };
+  if (a.startsWith('por defecto')) return { key: 'defecto', label: 'Por defecto' };
+  if (a.startsWith('generada')) return { key: 'generado', label: 'Generado' };
+  if (a.startsWith('copiado')) return { key: 'copiado', label: 'Copiado de otra capa' };
+  if (a.startsWith('nombre')) return { key: 'archivo', label: 'Nombre del archivo' };
+  return { key: 'sugerido', label: 'Automático' };
+}

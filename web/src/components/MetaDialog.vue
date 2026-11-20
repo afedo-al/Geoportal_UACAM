@@ -1,32 +1,38 @@
 <script setup>
-/* Ficha completa de metadatos (perfil basado en ISO 19115) */
-import { ref, computed, watch, nextTick } from 'vue';
+/* Ficha completa de metadatos (perfil basado en ISO 19115), en una sola página de tarjetas por tema. */
+import { ref, computed, watch } from 'vue';
 import Icon from './Icon.vue';
 import KeyValues from './KeyValues.vue';
+import StudyCard from './StudyCard.vue';
+import SourceChip from './SourceChip.vue';
 import { ui } from '../stores/ui.js';
 import { entryById, exportMeta, copyCitation, viewStudyOnMap } from '../stores/layers.js';
 import { CONTACTO_CEDESU } from '../lib/datasets.js';
-import { fmtDate } from '../lib/format.js';
-import { useDialog, moveInk, tabKeys } from '../lib/ui-helpers.js';
+import { fmtDate, norm } from '../lib/format.js';
+import { useDialog } from '../lib/ui-helpers.js';
 
 const dlg = ref(null);
-const tabsEl = ref(null);
 const shownId = ref(null);
-const tab = ref('ident');
-const setTab = v => { tab.value = v; };
-const TABS = [['ident', 'Identificación'], ['cob', 'Cobertura'], ['cal', 'Calidad y linaje'], ['dist', 'Distribución'], ['attr', 'Atributos']];
+const attrFilter = ref('');
 
 const entry = computed(() => entryById(shownId.value));
 const m = computed(() => entry.value?.metaRecord);
 const access = computed(() => m.value?.access || (m.value?.estatus === 'Completo' ? 'Pública' : 'Interna (no publicada)'));
+const accessWord = computed(() => String(access.value).split(' · ')[0]);
+const req = computed(() => m.value?.req || null);
+const done = computed(() => (req.value ? req.value.total - req.value.faltan.length : 0));
+const isPending = key => !!m.value?.req?.faltan.includes(key);
+const origin = k => m.value?.origenes?.[k] || null;
+const attrs = computed(() => (m.value?.attrs || []).filter(a => !attrFilter.value || norm(a.join(' ')).includes(norm(attrFilter.value))));
+const dash = v => (v && v !== '—' ? v : '');
+/* Fila etiqueta/valor; si el dato obligatorio falta, se dice «Pendiente» en lugar de dejar un guion */
+const row = (label, value, key, mono) => [label, dash(value) || (isPending(key) ? 'Pendiente' : ''), mono];
 
 watch(() => ui.metaId, id => {
   if (!id) return;
   shownId.value = id;
-  tab.value = 'ident';
-  nextTick(() => requestAnimationFrame(() => moveInk(tabsEl.value)));
+  attrFilter.value = '';
 });
-watch(tab, () => nextTick(() => moveInk(tabsEl.value)));
 useDialog(dlg, () => !!ui.metaId, () => { ui.metaId = null; });
 
 function onMap() {
@@ -42,51 +48,78 @@ function onMap() {
       <div><h2 id="metaDlgTitle">{{ entry?.name || 'Ficha de metadatos' }}</h2><p v-if="m">{{ m.id }} · {{ m.tipo }} · {{ m.cat }}</p></div>
       <button type="button" class="icon-btn" data-close aria-label="Cerrar"><Icon name="x" /></button>
     </div>
-    <div v-if="m" class="dlg-body">
-      <div ref="tabsEl" class="tabs" role="tablist" aria-label="Secciones de la ficha" @keydown="tabKeys($event, TABS.map(t => t[0]), tab, setTab)">
-        <button v-for="[k, label] in TABS" :key="k" type="button" role="tab" :data-tab="k" :id="`mt-tab-${k}`" :aria-controls="`mt-${k}`"
-          :aria-selected="String(tab === k)" :tabindex="tab === k ? 0 : -1" @click="tab = k">{{ label }}</button>
-        <span class="tab-ink" aria-hidden="true"></span>
-      </div>
-
-      <div v-show="tab === 'ident'" id="mt-ident" class="tabpanel flush" role="tabpanel" aria-labelledby="mt-tab-ident">
-        <div class="prop-sub spaced"><span class="badge" :class="m.estatus === 'Completo' ? 'badge-ok' : 'badge-warn'">{{ m.estatus }}</span></div>
-        <p class="prop-desc lead">{{ m.resumen }}</p>
-        <KeyValues :rows="[['Tema', m.temas], ['Responsable', m.resp], ['Fuente original', m.fuente], ['Fecha de publicación', fmtDate(m.pub)], ['Última actualización', fmtDate(m.act)], ['Licencia de uso', m.lic], ['Clasificación de acceso', access]]" />
-        <div class="section-label">Palabras clave</div>
-        <div v-if="(m.palabras || []).length" class="tags"><span v-for="t in m.palabras" :key="t" class="badge">{{ t }}</span></div>
-        <p v-else class="prop-desc flush-top">El registro no declara palabras clave.</p>
-      </div>
-
-      <div v-show="tab === 'cob'" id="mt-cob" class="tabpanel flush" role="tabpanel" aria-labelledby="mt-tab-cob">
-        <p v-if="!m.bbox" class="prop-desc lead">La extensión se calcula al leer las geometrías. Este formato lo interpreta el servidor, así que todavía no se conoce.</p>
-        <div v-else class="bbox">
-          <span class="n">{{ m.bbox[1].toFixed(2) }}° N</span><span class="w">{{ Math.abs(m.bbox[2]).toFixed(2) }}° O</span>
-          <span class="box"></span>
-          <span class="e">{{ Math.abs(m.bbox[3]).toFixed(2) }}° O</span><span class="s">{{ m.bbox[0].toFixed(2) }}° N</span>
+    <div v-if="m" class="dlg-body fc">
+      <header class="fc-head">
+        <div class="fc-badges">
+          <span class="badge" :class="m.estatus === 'Completo' || m.estatus === 'Publicada' ? 'badge-ok' : 'badge-warn'">{{ m.estatus }}</span>
+          <span class="badge">Acceso: {{ accessWord }}</span>
+          <span v-if="dash(m.lic)" class="badge">{{ m.lic }}</span>
+          <span v-if="m.version" class="badge">Versión {{ m.version }}</span>
+          <span v-if="m.act" class="fc-updated"><Icon name="calendar" class="ic-14" />Actualizada {{ fmtDate(m.act) }}</span>
         </div>
-        <KeyValues :rows="[['Escala', m.escala], ['Resolución o precisión', m.res], ['Sistema de referencia', m.crs, true], ['Ámbito geográfico', 'Estado de Campeche, México']]" />
-      </div>
+        <div v-if="req" class="fc-progress" role="group" aria-label="Campos obligatorios completos">
+          <div class="fc-bar" role="progressbar" :aria-valuenow="done" aria-valuemin="0" :aria-valuemax="req.total"><span :style="{ width: `${(done / req.total) * 100}%` }"></span></div>
+          <span class="fc-count">{{ done }} de {{ req.total }} obligatorios<template v-if="req.faltan.length"> · falta completar</template></span>
+        </div>
+      </header>
 
-      <div v-show="tab === 'cal'" id="mt-cal" class="tabpanel flush" role="tabpanel" aria-labelledby="mt-tab-cal">
-        <p class="prop-desc lead">{{ m.linaje }}</p>
-        <KeyValues :rows="[['Estatus de la información', m.estatus]]" />
-      </div>
+      <div class="fc-grid">
+        <StudyCard title="Resumen" icon="file-text" wide>
+          <p class="fc-lead">{{ m.resumen }} <SourceChip :origin="origin('sDesc')" /></p>
+          <div v-if="(m.palabras || []).length" class="tags"><span v-for="t in m.palabras" :key="t" class="badge">{{ t }}</span></div>
+          <p v-else class="fc-none">El registro no declara palabras clave.</p>
+        </StudyCard>
 
-      <div v-show="tab === 'dist'" id="mt-dist" class="tabpanel flush" role="tabpanel" aria-labelledby="mt-tab-dist">
-        <KeyValues :rows="[['Formato', m.formato], ['Tamaño aproximado', m.tam], ['Servicios WMS / WFS', 'Fase posterior (fuera del MVP)'], ['Enlace de consulta', `/estudios/${m.id.toLowerCase()}`, true]]" />
-        <div class="section-label">Punto de contacto</div>
-        <KeyValues :rows="[['Organización', CONTACTO_CEDESU.org], ['Área', CONTACTO_CEDESU.nombre], ['Correo', CONTACTO_CEDESU.correo], ['Dirección', CONTACTO_CEDESU.dir]]" />
-      </div>
+        <StudyCard title="Identificación" icon="book-open">
+          <KeyValues :rows="[row('Tema', m.temas, 'sTheme'), row('Fecha del estudio', fmtDate(m.pub), 'sDate'), ['Última actualización', fmtDate(m.act)], row('Clasificación de acceso', access, 'sAccess')]" />
+          <div class="fc-origins"><SourceChip :origin="origin('sTheme')" /><SourceChip :origin="origin('sDate')" /><SourceChip :origin="origin('sAccess')" /></div>
+        </StudyCard>
 
-      <div v-show="tab === 'attr'" id="mt-attr" class="tabpanel flush" role="tabpanel" aria-labelledby="mt-tab-attr">
-        <table class="attr-table">
-          <thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead>
-          <tbody>
-            <tr v-for="a in m.attrs || []" :key="a[0]"><td><code>{{ a[0] }}</code></td><td>{{ a[1] }}</td><td>{{ a[2] }}</td></tr>
-            <tr v-if="!(m.attrs || []).length"><td colspan="3">Los campos aparecen cuando la capa se carga en el mapa.</td></tr>
-          </tbody>
-        </table>
+        <StudyCard title="Responsable y licencia" icon="user">
+          <KeyValues :rows="[row('Responsable', m.resp, 'sResp'), row('Fuente original', m.fuente, 'sSource'), row('Licencia de uso', m.lic, 'sLic')]" />
+        </StudyCard>
+
+        <StudyCard title="Cobertura" icon="globe">
+          <p v-if="!m.bbox" class="fc-none">La extensión se calcula al leer las geometrías. Este formato lo interpreta el servidor, así que todavía no se conoce.</p>
+          <div v-else class="bbox">
+            <span class="n">{{ m.bbox[1].toFixed(2) }}° N</span><span class="w">{{ Math.abs(m.bbox[2]).toFixed(2) }}° O</span>
+            <span class="box"></span>
+            <span class="e">{{ Math.abs(m.bbox[3]).toFixed(2) }}° O</span><span class="s">{{ m.bbox[0].toFixed(2) }}° N</span>
+          </div>
+          <KeyValues :rows="[['Escala', m.escala], ['Resolución o precisión', m.res], ['Sistema de referencia', m.crs, true], ['Ámbito geográfico', 'Estado de Campeche, México']]" />
+        </StudyCard>
+
+        <StudyCard title="Calidad y linaje" icon="shield-check">
+          <p class="fc-lead">{{ dash(m.linaje) || (isPending('sLineage') ? 'Pendiente' : 'No se declaró la procedencia ni la metodología.') }} <SourceChip :origin="origin('sLineage')" /></p>
+          <KeyValues :rows="[['Estatus de la información', m.estatus]]" />
+        </StudyCard>
+
+        <StudyCard title="Distribución" icon="download">
+          <KeyValues :rows="[['Formato', m.formato], ['Tamaño aproximado', m.tam], ['Servicios WMS / WFS', 'Fase posterior (fuera del MVP)'], ['Enlace de consulta', `/estudios/${m.id.toLowerCase()}`, true]]" />
+        </StudyCard>
+
+        <StudyCard title="Punto de contacto" icon="building-2">
+          <KeyValues :rows="[['Organización', CONTACTO_CEDESU.org], ['Área', CONTACTO_CEDESU.nombre], ['Correo', CONTACTO_CEDESU.correo], ['Dirección', CONTACTO_CEDESU.dir]]" />
+        </StudyCard>
+
+        <StudyCard v-if="(m.versiones || []).length > 1" title="Versiones" icon="clock" wide>
+          <ol class="fc-timeline">
+            <li v-for="v in m.versiones" :key="v.id" :data-current="String(v.version === m.version)">
+              <b>Versión {{ v.version }}</b><span class="badge">{{ v.estadoTexto }}</span><span class="fc-date">{{ fmtDate(v.fecha) }}</span>
+            </li>
+          </ol>
+        </StudyCard>
+
+        <StudyCard title="Atributos" icon="table-2" wide>
+          <div v-if="(m.attrs || []).length > 8" class="input-search fc-filter"><Icon name="search" /><input v-model="attrFilter" class="input" type="search" placeholder="Buscar un campo" aria-label="Buscar un campo"></div>
+          <table class="attr-table">
+            <thead><tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr></thead>
+            <tbody>
+              <tr v-for="a in attrs" :key="a[0]"><td><code>{{ a[0] }}</code></td><td>{{ a[1] }}</td><td>{{ a[2] }}</td></tr>
+              <tr v-if="!attrs.length"><td colspan="3">{{ (m.attrs || []).length ? 'Ningún campo coincide.' : 'Los campos aparecen cuando la capa se carga en el mapa.' }}</td></tr>
+            </tbody>
+          </table>
+        </StudyCard>
       </div>
     </div>
     <div class="dlg-foot">

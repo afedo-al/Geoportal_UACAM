@@ -4,7 +4,7 @@ import { fmtNum } from './format.js';
 
 export const GROUPS = [
   { id: 'publicadas', name: 'Capas publicadas' },
-  { id: 'pruebas', name: 'Capas base' },
+  { id: 'pruebas', name: 'Capas de referencia' },
   { id: 'sesion', name: 'Capas de la sesión' }
 ];
 
@@ -38,7 +38,7 @@ const CLIMA_GROUPS = [
   ['Muy árido', '#c6763f', t => /^BW/.test(t)]
 ];
 const climaGroup = t => CLIMA_GROUPS.find(g => g[2](String(t || ''))) || ['Sin clasificar', '#9aa3ad'];
-const testMeta = o => ({ cat: 'Capas base', estatus: 'Publicado', tipo: 'Vector · Polígonos', escala: '—', palabras: [], access: 'Público', ...o });
+const testMeta = o => ({ cat: 'Capa de referencia', estatus: 'Referencia', tipo: 'Vector · Polígonos', escala: '—', palabras: [], access: 'Público', ...o });
 const DATA = `${import.meta.env.BASE_URL}data/`;
 
 /* style(p) recibe los atributos de la entidad y devuelve el estilo; zIndex fija el orden de dibujo */
@@ -53,8 +53,8 @@ export const DATASETS = [
       id: 'QROO-2015', temas: 'División municipal · Población',
       resumen: 'Límites de los 11 municipios de Quintana Roo con población, superficie y densidad.',
       pub: '', act: '', res: 'Simplificado a ~40 m para la web', crs: 'Original EPSG:32616 (WGS 84 / UTM 16N) · se muestra en WGS 84',
-      bbox: [17.81, 21.61, -89.42, -86.71], formato: 'Shapefile → GeoJSON', tam: '951 KB (SHP original)', lic: 'UACAM / CEDESU',
-      resp: 'CEDESU', fuente: 'Cartografía regional',
+      bbox: [17.81, 21.61, -89.42, -86.71], formato: 'Shapefile → GeoJSON', tam: '951 KB (SHP original)', lic: 'Por documentar',
+      resp: 'Por documentar', fuente: 'Por documentar (cartografía regional)',
       linaje: '11_municipios_2015_v1.shp reproyectado de UTM 16N a WGS 84 y simplificado (Douglas-Peucker 0.0004°): 59 269 → 13 423 vértices.'
     })
   },
@@ -67,8 +67,8 @@ export const DATASETS = [
       id: 'MEX-ENT', temas: 'División estatal',
       resumen: 'Límites de las 32 entidades federativas con superficie y división territorial.',
       pub: '', act: '', res: 'Simplificado a ~400 m para la web', crs: 'EPSG:4326 (WGS 84)',
-      bbox: [14.53, 32.72, -118.37, -86.71], formato: 'Shapefile → GeoJSON', tam: '10.7 MB (SHP original)', lic: 'UACAM / CEDESU',
-      resp: 'CEDESU', fuente: 'Cartografía nacional',
+      bbox: [14.53, 32.72, -118.37, -86.71], formato: 'Shapefile → GeoJSON', tam: '10.7 MB (SHP original)', lic: 'Por documentar',
+      resp: 'Por documentar', fuente: 'Por documentar (cartografía nacional)',
       linaje: 'mexico.shp simplificado (Douglas-Peucker 0.004°): 686 147 → 31 428 vértices. Las islas pequeñas se conservan sin simplificar.'
     })
   },
@@ -79,7 +79,7 @@ export const DATASETS = [
     tip: p => `${p.CLIMA_TIPO} · ${climaGroup(p.CLIMA_TIPO)[0]}`,
     legend: { title: 'Grupo climático, agrupado a partir del campo CLIMA_TIPO', items: CLIMA_GROUPS.map(g => [g[1], g[0]]) },
     meta: testMeta({
-      id: 'PRUEBA-CONABIO-CLIMAS', temas: 'Clima · Clasificación de Köppen modificada por García',
+      id: 'REF-CONABIO-CLIMAS', temas: 'Clima · Clasificación de Köppen modificada por García',
       resumen: 'Tipos de clima de la República Mexicana según la clasificación de Köppen modificada por García, escala 1:1 000 000.',
       pub: '2001-05-11', act: '2001-05-11', res: 'Escala 1:1 000 000 · simplificado a ~600 m para la web', crs: 'EPSG:4326 (WGS 84)',
       bbox: [14.54, 32.72, -118.4, -86.71], formato: 'Shapefile → GeoJSON', tam: '17.9 MB (SHP original)', lic: 'CC BY-NC 2.5 MX (citar a CONABIO)',

@@ -4,13 +4,14 @@ import { useRouter } from 'vue-router';
 import Icon from '../components/Icon.vue';
 import GpsPickerMap from '../components/GpsPickerMap.vue';
 import {
-  gps, addPoint, exportCSV, importExcel, selectPhoto, removePhoto, setManualCoordinates, useDeviceLocation,
+  gps, addPoint, exportCSV, importExcel, downloadTemplate, selectPhoto, removePhoto, setManualCoordinates, useDeviceLocation,
   editPoint, cancelEdit, deletePoint, validateCoords, LAT, LON, REMOTE
 } from '../stores/gps.js';
 import { focusGpsPoint, showAllGps } from '../stores/map.js';
 import { showToast } from '../stores/ui.js';
 import { fmtDay } from '../lib/format.js';
 import { formatCoord, fromUTM, toUTM } from '../lib/geo.js';
+import { altitudeError } from '../lib/coords.js';
 
 const router = useRouter();
 const photoEl = ref(null);
@@ -39,12 +40,14 @@ const coordLabel = computed(() => {
 const threeFormats = computed(() => {
   if (!coordOk.value) return [];
 
-  const lat = Number(gps.form.lat);
-  const lon = Number(gps.form.lon);
+  const lat = Number(String(gps.form.lat).replace(',', '.'));
+  const lon = Number(String(gps.form.lon).replace(',', '.'));
 
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
     return [];
   }
+
+  const homeZone = lon >= -90 ? 'utm16' : 'utm15';
 
   return [
     {
@@ -55,11 +58,13 @@ const threeFormats = computed(() => {
     {
       key: 'utm15',
       title: 'UTM Zona 15N',
+      home: homeZone === 'utm15',
       value: formatCoord(lat, lon, 'utm15')
     },
     {
       key: 'utm16',
       title: 'UTM Zona 16N',
+      home: homeZone === 'utm16',
       value: formatCoord(lat, lon, 'utm16')
     }
   ];
@@ -153,7 +158,7 @@ function startEdit(id) {
 function onPick(lat, lon) { setManualCoordinates(lat, lon, 'mapa'); syncCoordInput(); }
 function onSelect(id) { gps.selected = gps.selected === id ? null : id; nextTick(() => document.querySelector(`[data-point="${id}"]`)?.scrollIntoView({ block: 'nearest' })); }
 
-function onExcel(file) { importExcel(file).finally(() => { if (excelEl.value) excelEl.value.value = ''; }); }
+function onExcel(file) { importExcel(file, coordMode.value).finally(() => { if (excelEl.value) excelEl.value.value = ''; }); }
 function onDrop(e) { over.value = false; onExcel(e.dataTransfer.files?.[0]); }
 function focusPoint(p) { router.push('/'); focusGpsPoint(p); }
 function showAll() {
@@ -227,7 +232,7 @@ function showAll() {
                     class="input mono"
                     placeholder="Ej. 12.5"
                     :aria-invalid="String(!!gps.errors.altitude)"
-                    @input="validateCoords"
+                    @input="gps.errors.altitude = altitudeError(gps.form.altitude)"
                   />
 
                   <p v-if="gps.errors.altitude" class="error-text">
@@ -263,14 +268,14 @@ function showAll() {
 
                   <dl>
                     <div v-for="formato in threeFormats" :key="formato.key">
-                      <dt>{{ formato.title }}</dt>
+                      <dt>{{ formato.title }} <span v-if="formato.home" class="badge badge-ok">Zona del punto</span></dt>
                       <dd class="mono">{{ formato.value }}</dd>
                     </div>
                   </dl>
 
                   <p class="hint">
-                    Las zonas UTM son dos representaciones de
-                    la misma ubicación, no puntos diferentes.
+                    La zona del punto es la que le corresponde por su longitud; la otra es la misma
+                    ubicación expresada con el meridiano central vecino, y sirve para comparar con mapas que usan esa zona.
                   </p>
 
                 </div>
@@ -356,6 +361,7 @@ function showAll() {
                     </template>
                   </span>
 
+                  <span v-if="p.author" class="s">Autor: {{ p.author }}</span>
                   <span v-if="p.property" class="s">
                     Propiedad/predio: {{ p.property }}
                   </span>
@@ -378,7 +384,7 @@ function showAll() {
 
           <!-- Excel -->
           <section class="panel gps-import" aria-labelledby="gpsXlsTitle">
-            <div class="panel-head"><div><h2 id="gpsXlsTitle">Importar Excel</h2><p>Columnas reconocidas: latitud, longitud, nombre, tipo, descripción, fecha, hora y fotografía (URL). Una fila sin coordenadas válidas detiene la importación.</p></div></div>
+            <div class="panel-head"><div><h2 id="gpsXlsTitle">Importar Excel</h2><p>Plantilla: columnas <b>Name</b>, <b>X</b>, <b>Y</b> y <b>Autor</b>. X e Y pueden ir en grados (longitud y latitud, WGS 84) o en metros UTM; se detecta solo. Si son metros y caben en dos zonas, se usa la elegida en «Sistema de coordenadas». Una fila sin coordenadas válidas detiene la importación.</p> <button type="button" class="btn btn-quiet btn-sm" @click="downloadTemplate"><Icon name="download" />Descargar plantilla</button></div></div>
             <div class="panel-body">
               <input ref="excelEl" type="file" accept=".xls,.xlsx" hidden @change="onExcel($event.target.files?.[0])">
               <div class="dropzone dropzone-sm" :class="{ 'is-over': over }" role="button" tabindex="0"
@@ -397,9 +403,9 @@ function showAll() {
 
 <style scoped>
 .gps-conversions {
-  border: 1px solid #d7e0e5;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--surface);
   padding: 16px;
   margin: 12px 0;
 }
@@ -425,11 +431,11 @@ function showAll() {
   flex-wrap: wrap;
   gap: 8px 16px;
   padding-bottom: 10px;
-  border-bottom: 1px solid #e5ebee;
+  border-bottom: 1px solid var(--line);
 }
 
 .gps-conversions dt {
-  color: #536975;
+  color: var(--text-3);
   font-size: 12px;
 }
 

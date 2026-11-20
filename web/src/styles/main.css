@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Geoportal CEDESU — sistema visual
+   DeltaMap-CEDESU — sistema visual
    Dirección: precisión institucional. Navegación clara, superficies
    neutras frías y azul marino para las acciones principales.
    La cartografía ocupa el centro; los paneles se acoplan sobre ella sin
@@ -1320,6 +1320,7 @@ input, textarea { caret-color: var(--navy-700); }
 .preview-map.ol-preview { position: relative; }
 
 /* ---------- Estudio de cada capa ---------- */
+.auto-tag[data-origin="defecto"], .auto-tag[data-origin="generado"] { background: var(--warn-bg); color: var(--warn); }
 .auto-tag { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--info-bg); color: var(--info); font-size: var(--fs-11); font-weight: 500; white-space: nowrap; }
 .study-card { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-4); padding: var(--s-4); border: 1px solid var(--line); border-radius: var(--r-3); background: var(--surface); }
 .study-card .sc-main { flex: 1 1 280px; min-width: 0; }
@@ -1390,3 +1391,37 @@ input, textarea { caret-color: var(--navy-700); }
   .review-list ul { max-height: 320px; }
   .review-cols { grid-template-columns: 1fr; gap: var(--s-4); }
 }
+
+/* Modo local y elección de actualización */
+.mode-banner { margin-bottom: var(--s-3); }
+.update-mode { border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); padding: var(--s-3) var(--s-4); margin: var(--s-3) 0; display: grid; gap: var(--s-2); }
+.update-mode legend { padding: 0 var(--s-2); font-size: var(--fs-13); font-weight: 600; color: var(--text-2); }
+
+/* Ficha: tarjetas por tema */
+.fc-head { display: grid; gap: var(--s-3); margin-bottom: var(--s-4); }
+.fc-badges { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.fc-updated { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-size: var(--fs-12); }
+.fc-progress { display: flex; align-items: center; gap: var(--s-3); }
+.fc-bar { flex: 1; max-width: 260px; height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.fc-bar span { display: block; height: 100%; background: var(--ok); border-radius: inherit; }
+.fc-count { font-size: var(--fs-12); color: var(--text-2); }
+.fc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-3); }
+.fc-card { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: var(--s-4); min-width: 0; }
+.fc-wide { grid-column: 1 / -1; }
+.fc-title { display: flex; align-items: center; gap: var(--s-2); margin: 0 0 var(--s-2); font-size: var(--fs-14); font-weight: 600; color: var(--text); }
+.fc-lead { margin: 0 0 var(--s-3); font-size: var(--fs-14); line-height: 1.6; color: var(--text-2); }
+.fc-none { margin: 0; font-size: var(--fs-13); color: var(--text-3); }
+.fc-origins { display: flex; flex-wrap: wrap; gap: var(--s-1); margin-top: var(--s-2); }
+.fc-origins:empty { display: none; }
+.fc-filter { margin-bottom: var(--s-2); max-width: 320px; }
+.fc-timeline { list-style: none; margin: 0; padding: 0 0 0 var(--s-4); border-left: 2px solid var(--line); display: grid; gap: var(--s-2); }
+.fc-timeline li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); font-size: var(--fs-13); }
+.fc-timeline li[data-current="true"] b { color: var(--navy-700); }
+.fc-date { color: var(--text-3); font-size: var(--fs-12); }
+@media (max-width: 720px) { .fc-grid { grid-template-columns: 1fr; } }
+
+/* Mapa sin capas activas */
+.map-hint { position: absolute; left: 50%; bottom: var(--s-6); transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: var(--s-2); padding: var(--s-2) var(--s-3); max-width: calc(100% - 32px); border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--text-2); font-size: var(--fs-13); box-shadow: 0 2px 10px rgb(12 30 53 / 12%); }
+.map-hint span { white-space: nowrap; }
+.map-hint.dock-open { left: calc(50% + 130px); }
+@media (max-width: 900px) { .map-hint, .map-hint.dock-open { left: 50%; bottom: 72px; } .map-hint span { white-space: normal; } }

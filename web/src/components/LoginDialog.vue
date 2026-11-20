@@ -64,7 +64,7 @@ async function submit() {
       <div class="dlg-head">
         <div class="login-brand">
           <img :src="logo" width="40" height="40" loading="lazy" alt="">
-          <div><h2 id="loginTitle">Acceso de administración</h2><p>Centro de Estudios de Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre</p></div>
+          <div><h2 id="loginTitle">Acceso de administración</h2><p>Centro de Estudios para el Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre</p></div>
         </div>
         <button type="button" class="icon-btn" data-close aria-label="Cerrar"><Icon name="x" /></button>
       </div>

@@ -107,7 +107,7 @@ function entrarAlMapa() {
           DeltaMap-CEDESU tiene como finalidad centralizar,
           organizar, visualizar y administrar la información
           geográfica relacionada con los estudios y proyectos
-          de investigación del Centro de Estudios de Desarrollo
+          de investigación del Centro de Estudios para el Desarrollo
           Sustentable y Aprovechamiento de la Vida Silvestre.
         </p>
 
@@ -202,8 +202,8 @@ function entrarAlMapa() {
   height: 100%;
   min-height: 0;
   overflow-y: auto;
-  background: #f5f8f9;
-  color: #20333e;
+  background: var(--ground);
+  color: var(--text);
 }
 
 .inicio-contenido {
@@ -219,12 +219,12 @@ function entrarAlMapa() {
   gap: 40px;
   padding: 56px;
   border-radius: 20px;
-  background: linear-gradient(125deg, #123345, #17616a);
-  color: white;
+  background: linear-gradient(125deg, var(--navy-900), var(--navy-700));
+  color: var(--text-inverse);
 }
 
 .inicio-etiqueta {
-  color: #d9c68c;
+  color: var(--gold-400);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 2px;
@@ -237,12 +237,12 @@ function entrarAlMapa() {
 }
 
 .inicio-presentacion p {
-  color: #dce8eb;
+  color: var(--text-inverse-2);
   line-height: 1.75;
 }
 
 .inicio-presentacion .inicio-subtitulo {
-  color: white;
+  color: var(--text-inverse);
   font-size: 20px;
   font-weight: 600;
 }
@@ -271,17 +271,17 @@ function entrarAlMapa() {
   height: 100px;
   object-fit: contain;
   padding: 14px;
-  background: white;
+  background: var(--surface);
   border-radius: 16px;
 }
 
 .inicio-logos span {
   font-size: 24px;
-  color: #d9c68c;
+  color: var(--gold-400);
 }
 
 .inicio-logos p {
-  color: white;
+  color: var(--text-inverse);
   font-size: 13px;
 }
 
@@ -291,8 +291,8 @@ function entrarAlMapa() {
 
 .inicio-kicker {
   display: inline-block;
-  color: #17616a;
-  background: #e4f2ef;
+  color: var(--navy-700);
+  background: var(--navy-50);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.2px;
@@ -310,7 +310,7 @@ function entrarAlMapa() {
 .inicio-seccion > p {
   max-width: 900px;
   line-height: 1.8;
-  color: #526571;
+  color: var(--text-2);
 }
 
 .inicio-grid {
@@ -321,9 +321,9 @@ function entrarAlMapa() {
 }
 
 .inicio-tarjeta {
-  background: white;
+  background: var(--surface);
   padding: 24px;
-  border: 1px solid #dce5e9;
+  border: 1px solid var(--line);
   border-radius: 14px;
 }
 
@@ -332,8 +332,8 @@ function entrarAlMapa() {
   height: 44px;
   display: grid;
   place-items: center;
-  background: #e4f2ef;
-  color: #17616a;
+  background: var(--navy-50);
+  color: var(--navy-700);
   border-radius: 12px;
 }
 
@@ -343,7 +343,7 @@ function entrarAlMapa() {
 }
 
 .inicio-tarjeta p {
-  color: #617480;
+  color: var(--text-3);
   line-height: 1.6;
   font-size: 14px;
 }
@@ -379,7 +379,7 @@ function entrarAlMapa() {
 }
 
 .inicio-footer {
-  border-top: 1px solid #dce5e9;
+  border-top: 1px solid var(--line);
   margin-top: 50px;
   padding-top: 26px;
   display: flex;

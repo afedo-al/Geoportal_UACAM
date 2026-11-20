@@ -12,6 +12,7 @@ import { showToast } from '../stores/ui.js';
 import { studies, studyById, saveStudy, closeStudyEditor, deleteStudy, STUDY_FIELDS, STUDY_REQ, THEMES, LICENSES, ACCESS, FIELD_LABELS } from '../stores/studies.js';
 import { entryById, datasetForm, saveDatasetMeta, resetDatasetMeta, hideDataset } from '../stores/layers.js';
 import { useDialog } from '../lib/ui-helpers.js';
+import { originOf } from '../lib/study-fields.js';
 
 const dlg = ref(null);
 const titleEl = ref(null);
@@ -44,11 +45,8 @@ useDialog(dlg, () => shown.value, () => closeStudyEditor());
 /* Etiqueta junto al campo: de dónde salió el valor, mientras nadie lo haya cambiado (solo capas del lote) */
 function tag(k) {
   const a = rec.value?.auto[k];
-  if (!a || rec.value.edited.includes(k) || form[k] !== rec.value[k]) return '';
-  if (a.startsWith('metadatos')) return 'del archivo';
-  if (a.startsWith('sugerido')) return 'sugerido';
-  if (a.startsWith('copiado')) return 'copiado de otra capa';
-  return 'nombre del archivo';
+  if (!a || rec.value.edited.includes(k) || form[k] !== rec.value[k]) return null;
+  return originOf(a);
 }
 
 async function remove() {
@@ -101,36 +99,39 @@ function submit() {
         </div>
         <div v-else-if="rec.origins.length" class="callout info">
           <Icon name="info" />
-          <span>Datos leídos de <b>{{ rec.origins.join(' · ') }}</b>. Las etiquetas «del archivo» y «sugerido» marcan lo que se rellenó solo: revísalo y corrígelo si hace falta.</span>
+          <span>Datos leídos de <b>{{ rec.origins.join(' · ') }}</b>. Las etiquetas «Del archivo», «Sugerido», «Por defecto» y «Generado» marcan lo que se rellenó solo: revísalo y corrígelo si hace falta.</span>
         </div>
         <div v-else class="callout warn">
           <Icon name="alert-triangle" />
-          <span>Este archivo no trae metadatos del estudio, así que solo el título sale del nombre del archivo. Completa los campos con *; si tienes el <b>.xml</b> de la capa, añádelo en la pantalla de la capa y se leerá solo.</span>
+          <span>Este archivo no trae metadatos del estudio: el título sale del nombre del archivo y la fecha y el acceso son valores por defecto. Completa los campos con *; si tienes el <b>.xml</b> de la capa, añádelo en la pantalla de la capa y se leerá solo.</span>
         </div>
 
+        <div class="section-label flush-top">Identificación</div>
         <div class="grid2">
-          <div class="field"><label for="sTitle">Título del estudio * <span v-if="tag('sTitle')" class="auto-tag">{{ tag('sTitle') }}</span></label>
+          <div class="field"><label for="sTitle">Título del estudio * <span v-if="tag('sTitle')" class="auto-tag" :data-origin="tag('sTitle').key">{{ tag('sTitle').label }}</span></label>
             <input id="sTitle" ref="titleEl" v-model="form.sTitle" class="input" required></div>
-          <div class="field"><label for="sTheme">Tema * <span v-if="tag('sTheme')" class="auto-tag">{{ tag('sTheme') }}</span></label>
+          <div class="field"><label for="sTheme">Tema * <span v-if="tag('sTheme')" class="auto-tag" :data-origin="tag('sTheme').key">{{ tag('sTheme').label }}</span></label>
             <select id="sTheme" v-model="form.sTheme" class="select" required><option value="">Selecciona…</option><option v-for="t in themeOptions" :key="t">{{ t }}</option></select></div>
         </div>
         <div class="grid3">
-          <div class="field"><label for="sDate">Fecha del estudio * <span v-if="tag('sDate')" class="auto-tag">{{ tag('sDate') }}</span></label>
+          <div class="field"><label for="sDate">Fecha del estudio * <span v-if="tag('sDate')" class="auto-tag" :data-origin="tag('sDate').key">{{ tag('sDate').label }}</span></label>
             <input id="sDate" v-model="form.sDate" class="input" type="date" required></div>
-          <div class="field"><label for="sResp">Responsable * <span v-if="tag('sResp')" class="auto-tag">{{ tag('sResp') }}</span></label>
+          <div class="field"><label for="sResp">Responsable * <span v-if="tag('sResp')" class="auto-tag" :data-origin="tag('sResp').key">{{ tag('sResp').label }}</span></label>
             <input id="sResp" v-model="form.sResp" class="input" required></div>
-          <div class="field"><label for="sSource">Fuente original <span v-if="tag('sSource')" class="auto-tag">{{ tag('sSource') }}</span></label>
+          <div class="field"><label for="sSource">Fuente original <span v-if="tag('sSource')" class="auto-tag" :data-origin="tag('sSource').key">{{ tag('sSource').label }}</span></label>
             <input id="sSource" v-model="form.sSource" class="input" placeholder="Institución o autor"></div>
         </div>
+        <div class="section-label">Licencia y acceso</div>
         <div class="grid2">
-          <div class="field"><label for="sLic">Licencia de uso * <span v-if="tag('sLic')" class="auto-tag">{{ tag('sLic') }}</span></label>
+          <div class="field"><label for="sLic">Licencia de uso * <span v-if="tag('sLic')" class="auto-tag" :data-origin="tag('sLic').key">{{ tag('sLic').label }}</span></label>
             <select id="sLic" v-model="form.sLic" class="select" required><option value="">Selecciona…</option><option v-for="l in licenseOptions" :key="l">{{ l }}</option></select></div>
-          <div class="field"><label for="sAccess">Clasificación de acceso * <span v-if="tag('sAccess')" class="auto-tag">{{ tag('sAccess') }}</span></label>
+          <div class="field"><label for="sAccess">Clasificación de acceso * <span v-if="tag('sAccess')" class="auto-tag" :data-origin="tag('sAccess').key">{{ tag('sAccess').label }}</span></label>
             <select id="sAccess" v-model="form.sAccess" class="select" required><option value="">Selecciona…</option><option v-for="a in accessOptions" :key="a">{{ a }}</option></select></div>
         </div>
-        <div class="field"><label for="sDesc">Descripción <span v-if="tag('sDesc')" class="auto-tag">{{ tag('sDesc') }}</span></label><textarea id="sDesc" v-model="form.sDesc" class="textarea" rows="3"></textarea></div>
-        <div class="field"><label for="sLineage">Procedencia y metodología <span v-if="tag('sLineage')" class="auto-tag">{{ tag('sLineage') }}</span></label><textarea id="sLineage" v-model="form.sLineage" class="textarea" rows="2" placeholder="Cómo se levantaron y procesaron los datos"></textarea></div>
-        <div class="field"><label for="sKeywords">Palabras clave <span v-if="tag('sKeywords')" class="auto-tag">{{ tag('sKeywords') }}</span></label><input id="sKeywords" v-model="form.sKeywords" class="input" placeholder="Separadas por comas"></div>
+        <div class="section-label">Descripción y procedencia</div>
+        <div class="field"><label for="sDesc">Descripción <span v-if="tag('sDesc')" class="auto-tag" :data-origin="tag('sDesc').key">{{ tag('sDesc').label }}</span></label><textarea id="sDesc" v-model="form.sDesc" class="textarea" rows="3"></textarea></div>
+        <div class="field"><label for="sLineage">Procedencia y metodología <span v-if="tag('sLineage')" class="auto-tag" :data-origin="tag('sLineage').key">{{ tag('sLineage').label }}</span></label><textarea id="sLineage" v-model="form.sLineage" class="textarea" rows="2" placeholder="Cómo se levantaron y procesaron los datos"></textarea></div>
+        <div class="field"><label for="sKeywords">Palabras clave <span v-if="tag('sKeywords')" class="auto-tag" :data-origin="tag('sKeywords').key">{{ tag('sKeywords').label }}</span></label><input id="sKeywords" v-model="form.sKeywords" class="input" placeholder="Separadas por comas"></div>
 
         <div v-if="rec?.extras.length">
           <div class="section-label flush-top">Otros datos que declara el archivo</div>

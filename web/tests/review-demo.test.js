@@ -65,3 +65,42 @@ test('solo las capas archivadas pueden eliminarse definitivamente', () => {
   assert.equal(ok, true);
   assert.throws(() => demo.detail(id));
 });
+
+test('dos capas distintas con título parecido no se archivan entre sí; el mismo nombre con otra grafía sí es la misma capa', () => {
+  const demo = createReviewDemo({ initialLayers: [], loadGeoJSON: async () => null });
+  demo.add({ id: 'a', titulo: 'Climas de México' });
+  demo.add({ id: 'b', titulo: 'Climas de Mexico (CONABIO)' });
+  ['a', 'b'].forEach(id => { demo.transition(id, 'aprobada'); demo.transition(id, 'publicada'); });
+  assert.equal(demo.publishedList().length, 2);
+  const v2 = demo.add({ id: 'c', titulo: 'climas de mexico' });
+  assert.equal(v2.reemplazaId, 'a');
+  assert.equal(v2.version, 2);
+  demo.transition('c', 'aprobada'); demo.transition('c', 'publicada');
+  assert.equal(demo.detail('a').estado, 'archivada');
+  assert.equal(demo.detail('b').estado, 'publicada');
+});
+
+test('el modo «nueva» conserva las dos capas con el mismo nombre', () => {
+  const demo = createReviewDemo({ initialLayers: [], loadGeoJSON: async () => null });
+  demo.add({ id: 'a', titulo: 'Suelos' });
+  demo.transition('a', 'aprobada'); demo.transition('a', 'publicada');
+  const n = demo.add({ id: 'b', titulo: 'Suelos', modo: 'nueva' });
+  assert.equal(n.reemplazaId, null);
+  assert.notEqual(n.layerKey, demo.detail('a').layerKey);
+  demo.transition('b', 'aprobada'); demo.transition('b', 'publicada');
+  assert.equal(demo.publishedList().length, 2);
+});
+
+test('reset respeta las capas iniciales y la clave ignora acentos y extensión', async () => {
+  const demo = createReviewDemo({ initialLayers: [], loadGeoJSON: async () => null });
+  demo.add({ id: 'a', titulo: 'x' });
+  demo.reset();
+  assert.equal(demo.list().cargas.length, 0);
+  const { layerKey } = await import('../src/lib/layer-key.js');
+  assert.equal(layerKey('Municipios_Qroo (2015).geojson'), 'municipios-qroo-2015');
+});
+
+test('lo cargado queda como «Interna» si no se indica otro acceso', () => {
+  const demo = createReviewDemo({ initialLayers: [], loadGeoJSON: async () => null });
+  assert.equal(demo.add({ id: 'a', titulo: 'x' }).acceso, 'Interna');
+});

@@ -125,11 +125,13 @@ function dragEnter(e) { if (!hasFiles(e)) return; e.preventDefault(); depth++; b
 function dragOver(e) { if (hasFiles(e)) e.preventDefault(); }
 function dragLeave() { depth = Math.max(0, depth - 1); if (!depth) batch.dragging = false; }
 function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batch.dragging = false; addFiles(e.dataTransfer.files); }
+import ModeBanner from '../components/ModeBanner.vue';
 </script>
 
 <template>
   <section id="screen-carga" class="screen active" aria-labelledby="uploadTitle" @dragenter="dragEnter" @dragover="dragOver" @dragleave="dragLeave" @drop="drop">
     <div class="ingest" :class="{ 'is-dragging': batch.dragging }" :data-empty="String(!items.length)">
+      <ModeBanner class="ingest-mode" />
       <header class="ingest-head">
         <div class="ingest-title">
           <h1 id="uploadTitle">Carga de datos</h1>
@@ -259,6 +261,11 @@ function drop(e) { if (!hasFiles(e)) return; e.preventDefault(); depth = 0; batc
                 <button v-if="!rec.origins.length" type="button" class="btn btn-quiet btn-sm" @click="askFile('xml')"><Icon name="file-text" />Añadir metadatos (.xml)</button>
               </div>
             </section>
+            <fieldset v-if="it.previous" class="update-mode">
+              <legend>Ya existe una capa publicada con este nombre</legend>
+              <label class="check"><input v-model="it.updateMode" type="radio" :name="'mode-' + it.id" value="actualizar"> Actualizar «{{ it.previous.titulo }}»: la versión anterior se archiva al publicar esta</label>
+              <label class="check"><input v-model="it.updateMode" type="radio" :name="'mode-' + it.id" value="nueva"> Es una capa nueva: conservar las dos</label>
+            </fieldset>
 
 
             <div v-if="it.message" class="dmsg">

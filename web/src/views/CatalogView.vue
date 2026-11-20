@@ -75,7 +75,7 @@ function reset() { q.value = ''; theme.value = ''; year.value = ''; }
             <div class="cat-headrow" aria-hidden="true"><span>Conjunto de datos</span><span>Tema</span><span>Sistema de referencia</span><span></span></div>
             <article v-for="s in list" :key="s.id" class="cat-row" :data-study="s.id">
               <div class="cat-main">
-                <h2>{{ s.title }} <span v-if="s.lote" class="badge badge-warn">Sin publicar · solo esta sesión</span><span v-else-if="s.published" class="badge badge-ok">Publicada</span><span v-if="s.edited" class="badge">Editado en este navegador</span></h2>
+                <h2>{{ s.title }} <span v-if="s.lote" class="badge badge-warn">Sin publicar · solo esta sesión</span><span v-else-if="s.published" class="badge badge-ok">Publicada</span><span v-else class="badge">Referencia</span><span v-if="s.edited" class="badge">Editado en este navegador</span></h2>
                 <p class="desc" :title="s.desc && s.desc.length > 220 ? s.desc : null">{{ s.desc }}</p>
                 <div class="facts">
                   <span v-if="s.date"><Icon name="calendar" class="ic-14" />{{ fmtDate(s.date) }}</span>

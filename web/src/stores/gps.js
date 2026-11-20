@@ -13,6 +13,7 @@ import {
   altitudeError,
   inWorkArea
 } from '../lib/coords.js';
+import { resolveCoords, ALIASES, TEMPLATE_HEADERS, TEMPLATE_EXAMPLE } from '../lib/excel-points.js';
 
 /* remote: los puntos viven en el servidor */
 export const REMOTE = hasApi();
@@ -101,6 +102,7 @@ function sanitizePoint(pt) {
         : Number(String(pt.altitude).replace(',', '.')),
 
     property: str(pt.property, 120),
+    author: str(pt.author, 120),
     type: str(pt.type, 60),
     description: str(pt.description, 1000),
 
@@ -425,6 +427,7 @@ export async function exportCSV() {
     'Longitud',
     'Altitud (m)',
     'Propiedad o predio',
+    'Autor',
     'Tipo',
     'Descripción',
     'Fecha',
@@ -439,6 +442,7 @@ export async function exportCSV() {
     p.lon,
     p.altitude ?? '',
     p.property || '',
+    p.author || '',
     p.type,
     p.description,
     p.date,
@@ -451,6 +455,18 @@ export async function exportCSV() {
   downloadBlob(new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' }), 'puntos_campo_cedesu.csv');
 }
 
+/* Plantilla de Excel: Name, X, Y, Autor */
+export async function downloadTemplate() {
+  const mod = await import('xlsx');
+  const XLSX = mod.default?.utils ? mod.default : mod;
+  const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, TEMPLATE_EXAMPLE]);
+  ws['!cols'] = [{ wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 30 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Puntos');
+  const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  downloadBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'plantilla_puntos_campo.xlsx');
+}
+
 /* ---------------- importación de Excel ---------------- */
 const normalizeHeader = v => String(v ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim().replace(/[ _-]+/g, '');
 function rowValue(row, aliases) {
@@ -459,7 +475,7 @@ function rowValue(row, aliases) {
   return key ? row[key] : '';
 }
 
-export async function importExcel(file) {
+export async function importExcel(file, coordZone = '') {
   if (!file) return;
   if (!/\.xlsx?$/i.test(file.name)) return showToast('error', 'Archivo no válido', 'Selecciona un archivo .xls o .xlsx.');
   if (file.size > 20 * 1024 * 1024) return showToast('error', 'Archivo demasiado grande', 'El límite para importar puntos es de 20 MB.');
@@ -474,14 +490,15 @@ export async function importExcel(file) {
     const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
     const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: '' });
     const imported = [], skipped = [];
+    const preferred = Number((coordZone || '').replace('utm', '')) || null;
+    const resolved = resolveCoords(rows, preferred);
+    if (resolved.needsZone) {
+      return showToast('warn', 'Elige la zona UTM', 'Las coordenadas están en metros y caben en las zonas 15N y 16N. Elige la zona en «Sistema de coordenadas» del formulario y vuelve a importar.');
+    }
     rows.forEach((row, index) => {
-      const lat = Number(
-        rowValue(row, ['latitud', 'latitude', 'lat'])
-      );
-
-      const lon = Number(
-        rowValue(row, ['longitud', 'longitude', 'lon', 'lng'])
-      );
+      const c = resolved.coords[index];
+      const lat = c ? c.lat : NaN;
+      const lon = c ? c.lon : NaN;
 
       const altitude = rowValue(row, [
         'altitud',
@@ -505,7 +522,7 @@ export async function importExcel(file) {
         ),
 
         name: String(
-          rowValue(row, ['nombre', 'nombrepunto', 'punto', 'name']) ||
+          rowValue(row, ALIASES.name) ||
           `Punto importado ${index + 1}`
         ),
 
@@ -520,6 +537,8 @@ export async function importExcel(file) {
         property: String(
           rowValue(row, ['propiedad', 'predio', 'sitio', 'lugar']) || ''
         ),
+
+        author: String(rowValue(row, ALIASES.author) || ''),
 
         type: String(
           rowValue(row, [

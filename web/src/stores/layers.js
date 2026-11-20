@@ -124,7 +124,8 @@ function publishedMeta(c) {
     escala: '—', res: '—', crs: c.crs || '—', bbox: c.bbox, formato: PUB_FORMATS[c.formato] || c.formato || '—', tam: '—', lic: s.sLic || '—',
     palabras: String(s.sKeywords || '').split(',').map(x => x.trim()).filter(Boolean),
     resp: s.sResp || '—', fuente: s.sSource || s.sResp || '—', linaje: s.sLineage || '—',
-    access: `${s.sAccess || 'Sin clasificar'} · publicada el ${(c.publicada || '').slice(0, 10)}`, attrs: []
+    access: `${s.sAccess || 'Sin clasificar'} · publicada el ${(c.publicada || '').slice(0, 10)}`, attrs: [],
+    version: c.version || 1, versiones: c.versiones || []
   };
 }
 
@@ -165,7 +166,10 @@ async function syncPublished() {
         publicada: c.publicada,
         estudio: c.estudio,
         crs: c.crs,
-        bbox: c.bbox
+        bbox: c.bbox,
+        layerKey: c.layerKey,
+        version: c.version,
+        versiones: reviewDemo.versions(c.layerKey)
       }));
     } catch { list = []; }
   }
@@ -505,7 +509,7 @@ export function exportMeta(id) {
   const m = metaOf(id), e = entryById(id);
   if (!m || !e) return;
   const doc = `<?xml version="1.0" encoding="UTF-8"?>
-<!-- Ficha generada por el prototipo del Geoportal CEDESU. -->
+<!-- Ficha generada por DeltaMap-CEDESU. -->
 <metadatos perfil="ISO 19115 (simplificado)">
   <identificador>${xml(m.id)}</identificador>
   <titulo>${xml(e.name)}</titulo>
@@ -530,7 +534,7 @@ export function exportMeta(id) {
 export function copyCitation(id) {
   const m = metaOf(id), e = entryById(id);
   if (!m || !e) return;
-  const text = `${m.resp} (${String(m.pub).slice(0, 4)}). ${e.name} [${m.tipo}]. Escala ${m.escala}. ${CONTACTO_CEDESU.org}. Geoportal CEDESU. ID ${m.id}.`;
+  const text = `${m.resp} (${String(m.pub).slice(0, 4)}). ${e.name} [${m.tipo}]. Escala ${m.escala}. ${CONTACTO_CEDESU.org}. DeltaMap-CEDESU. ID ${m.id}.`;
   if (!navigator.clipboard) return showToast('error', 'No se pudo copiar', 'El navegador no permite acceder al portapapeles.');
   navigator.clipboard.writeText(text)
     .then(() => showToast('success', 'Cita copiada', text))

@@ -36,3 +36,23 @@ test('los límites del área de trabajo son inclusivos', () => {
   assert.equal(inWorkArea(13.99, -90), false);
   assert.equal(inWorkArea(NaN, -90), false);
 });
+
+import { altitudeError } from '../src/lib/coords.js';
+
+test('la altitud es opcional y acepta coma decimal', () => {
+  assert.equal(altitudeError(''), '');
+  assert.equal(altitudeError(null), '');
+  assert.equal(altitudeError('12,5'), '');
+  assert.equal(altitudeError(0), '');
+});
+
+test('la altitud respeta los límites de -500 a 9000 m', () => {
+  assert.equal(altitudeError(-500), '');
+  assert.equal(altitudeError(9000), '');
+  assert.notEqual(altitudeError(-501), '');
+  assert.notEqual(altitudeError(9001), '');
+});
+
+test('la altitud rechaza texto', () => {
+  assert.notEqual(altitudeError('abc'), '');
+});

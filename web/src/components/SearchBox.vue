@@ -33,7 +33,7 @@ function build(text) {
   PLACES.filter(p => norm(p[0]).includes(nq) || norm(p[1]).includes(nq)).slice(0, 5)
     .forEach(p => out.push({ group: 'Lugares', icon: 'map-pin', t: p[0], s: `Municipio de ${p[1]} · coordenadas aproximadas`, run: () => goTo(p[2], p[3], 12, p[0]) }));
   layers.entries.filter(l => !l.hidden && norm(l.name).includes(nq)).slice(0, 5)
-    .forEach(l => out.push({ group: 'Capas', icon: 'layers', t: l.name, s: l.group === 'pruebas' ? 'Capa base' : l.remote ? 'Capa publicada' : 'Capa de sesión', run: () => { router.push('/'); showProps(l.id, 'info'); } }));
+    .forEach(l => out.push({ group: 'Capas', icon: 'layers', t: l.name, s: l.group === 'pruebas' ? 'Capa de referencia' : l.remote ? 'Capa publicada' : 'Capa de sesión', run: () => { router.push('/'); showProps(l.id, 'info'); } }));
   layers.entries.filter(e => !e.hidden && e.geojson && e.def?.label).forEach(e => {
     const label = e.def.label;
     let n = 0;

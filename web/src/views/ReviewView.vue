@@ -6,7 +6,8 @@ import { ref, computed, watch, onMounted } from 'vue';
 import Icon from '../components/Icon.vue';
 import KeyValues from '../components/KeyValues.vue';
 import PreviewMap from '../components/PreviewMap.vue';
-import { session, DEMO_LOCAL } from '../stores/session.js';
+import ModeBanner from '../components/ModeBanner.vue';
+import { session } from '../stores/session.js';
 import { showToast, confirmAction } from '../stores/ui.js';
 import { loadPublished } from '../stores/layers.js';
 import { api, hasApi, ApiError } from '../lib/api.js';
@@ -46,7 +47,7 @@ const geojson = ref(null);
 const nota = ref('');
 const busy = ref(false);
 const isAdmin = computed(() => session.admin?.rol === 'admin');
-const demoMode = DEMO_LOCAL && !hasApi();
+const demoMode = !hasApi();   // sin servidor: flujo local de esta pestaña (solo se llega con la cuenta de demostración)
 const available = computed(() => true);
 
 const errorText = err => (err instanceof ApiError ? err.detalle : 'No se pudo conectar con el servidor.');
@@ -100,7 +101,7 @@ async function transition(estado) {
 
   let confirmText = a.confirm;
   if (estado === 'publicada') {
-    const conflict = demoMode ? reviewDemo.findPublished(d.titulo, d.capa, d.id) : null;
+    const conflict = demoMode ? reviewDemo.findPublished(d.layerKey || d.titulo, d.id) : null;
     if (conflict) {
       confirmText = `Ya existe una versión publicada de esta capa («${conflict.titulo}»). Al publicar esta versión, la anterior se archivará automáticamente y quedará en Archivadas para consulta o eliminación.`;
     }
@@ -150,7 +151,7 @@ async function deleteLayer(id) {
 const publishedConflict = computed(() => {
   if (!detail.value || ['publicada', 'archivada'].includes(detail.value.estado)) return null;
   if (demoMode) {
-    return reviewDemo.findPublished(detail.value.titulo, detail.value.capa, detail.value.id);
+    return reviewDemo.findPublished(detail.value.layerKey || detail.value.titulo, detail.value.id);
   }
   return null;
 });
@@ -185,6 +186,8 @@ onMounted(loadList);
           </div>
         </div>
 
+        <ModeBanner />
+
         <template v-if="available">
           <div class="seg review-filters" role="radiogroup" aria-label="Filtrar por estado">
             <label v-for="[k, t] in FILTERS" :key="k">
@@ -212,7 +215,7 @@ onMounted(loadList);
                 <div class="panel-head">
                   <div>
                     <h2 id="revDetailTitle">{{ detail.titulo }}</h2>
-                    <p>{{ detail.tema }} · Acceso {{ detail.acceso || '—' }}</p>
+                    <p>{{ detail.estudio?.sTheme || detail.tema || 'Sin tema' }} · Acceso {{ detail.acceso || '—' }} · Versión {{ detail.version || 1 }}</p>
                   </div>
                   <span class="badge" :class="BADGE[detail.estado]">{{ detail.estadoTexto }}</span>
                 </div>

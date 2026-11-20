@@ -54,6 +54,7 @@ watch(() => [ui.docks.left, ui.docks.right], () => setTimeout(() => { neat.value
       <div class="print-head">DeltaMap-CEDESU · Estado de Campeche</div>
       <div class="map-stage">
         <div id="olMap" ref="mapEl" class="map-canvas" role="application" aria-label="Mapa interactivo del Estado de Campeche"></div>
+        <div v-if="!visibleCount" class="map-hint" :class="{ 'dock-open': ui.docks.left }" role="status"><Icon name="layers" class="ic-14" /><span>Activa una capa en el panel <b>Capas</b> para empezar.</span><button type="button" class="btn btn-quiet btn-sm" @click="setDock('left', true)">Abrir capas</button></div>
       </div>
 
       <MapNeatline ref="neat" />

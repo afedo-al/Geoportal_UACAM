@@ -4,7 +4,7 @@
    cargar el código de la carga de archivos. Los estudios solo existen en esta sesión del navegador. */
 import { reactive } from 'vue';
 import { confirmAction, showToast } from './ui.js';
-import { THEMES, LICENSES, ACCESS, STUDY_FIELDS, STUDY_REQ, FIELD_LABELS } from '../lib/study-fields.js';
+import { THEMES, LICENSES, ACCESS, STUDY_FIELDS, STUDY_REQ, FIELD_LABELS, originOf } from '../lib/study-fields.js';
 
 export { THEMES, LICENSES, ACCESS, STUDY_FIELDS, STUDY_REQ, FIELD_LABELS };
 
@@ -129,7 +129,9 @@ export function metaFromStudy(rec) {
     bbox: f.bbox || null, formato: f.formato || '—', tam: f.tam || '—', lic: rec.sLic || '—',
     palabras: String(rec.sKeywords || '').split(',').map(s => s.trim()).filter(Boolean),
     resp: rec.sResp || '—', fuente: rec.sSource || rec.sResp || '—', linaje: rec.sLineage || '—',
-    access: `${rec.sAccess || 'Sin clasificar'} · solo esta sesión`, attrs: f.attrs || []
+    access: `${rec.sAccess || 'Sin clasificar'} · solo esta sesión`, attrs: f.attrs || [],
+    req: { total: STUDY_REQ.length, faltan: missingFields(rec) },
+    origenes: Object.fromEntries(Object.entries(rec.auto || {}).filter(([k]) => !(rec.edited || []).includes(k)).map(([k, v]) => [k, originOf(v)]))
   };
 }
 

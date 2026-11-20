@@ -20,6 +20,7 @@ const EVENTS = {
   archivada: 'carga_archivada',
   en_revision: 'carga_reabierta'
 };
+import { layerKey } from './layer-key.js';
 const clone = value => JSON.parse(JSON.stringify(value));
 
 const DEMO_LAYERS = [
@@ -31,8 +32,8 @@ const DEMO_LAYERS = [
 function seed(layers = DEMO_LAYERS) {
   const now = new Date().toISOString();
   return (layers || []).map(([id, titulo, geojsonFile, entidades, tema]) => ({
-    id, titulo, capa: titulo, formato: 'geojson', estado: 'en_revision', estadoTexto: STATES.en_revision,
-    acceso: 'Público', autor: 'CEDESU', creada: now, actualizada: now,
+    id, layerKey: layerKey(titulo), version: 1, titulo, capa: titulo, formato: 'geojson', estado: 'en_revision', estadoTexto: STATES.en_revision,
+    acceso: 'Interna', autor: 'CEDESU', creada: now, actualizada: now,
     revisor: '', publicada: null, crs: 'EPSG:4326 · WGS 84', resolucion: 'Datos para revisión',
     tieneGeometria: true, entidades, geojsonFile, nota: '', transiciones: NEXT.en_revision,
     archivos: [{ nombre: geojsonFile, tam: 1024, sha256: '0'.repeat(64) }],
@@ -80,17 +81,26 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
     },
     add(info, geojson = null) {
       const now = new Date().toISOString();
-      const norm = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const prevPublished = records.find(r => r.estado === 'publicada' && (norm(r.titulo) === norm(info.titulo) || norm(r.capa) === norm(info.titulo)));
+      /* Misma clave = misma capa. modo \u00abnueva\u00bb crea otra capa aunque el nombre coincida. */
+      let key = info.layerKey || layerKey(info.titulo);
+      if (info.modo === 'nueva') {
+        const base = key;
+        for (let n = 2; records.some(r => r.layerKey === key); n++) key = `${base}-${n}`;
+      }
+      const sameLayer = records.filter(r => r.layerKey === key);
+      const prevPublished = sameLayer.find(r => r.estado === 'publicada') || null;
+      const version = sameLayer.reduce((m, r) => Math.max(m, r.version || 1), 0) + 1;
 
       const item = {
         id: info.id || `carga-${Date.now()}`,
+        layerKey: key,
+        version,
         titulo: info.titulo,
         capa: info.titulo,
         formato: info.formato || 'geojson',
         estado: 'en_revision',
         estadoTexto: STATES.en_revision,
-        acceso: info.estudio?.sAccess || 'Pública',
+        acceso: info.estudio?.sAccess || 'Interna',
         autor: info.usuario || 'Administración',
         creada: now,
         actualizada: now,
@@ -120,11 +130,15 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
       }
       return clone(item);
     },
-    findPublished(titulo, capa, excludeId = null) {
-      const norm = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const t = norm(titulo);
-      const c = norm(capa);
-      return records.find(r => r.id !== excludeId && r.estado === 'publicada' && (norm(r.titulo) === t || norm(r.capa) === c)) || null;
+    /* Versi\u00f3n publicada de la misma capa (por clave, no por t\u00edtulo) */
+    findPublished(nameOrKey, excludeId = null) {
+      const key = layerKey(nameOrKey);
+      return clone(records.find(r => r.id !== excludeId && r.estado === 'publicada' && r.layerKey === key) || null);
+    },
+    /* Versiones de una misma capa, de la más reciente a la más antigua */
+    versions(key) {
+      return clone(records.filter(r => r.layerKey === key).sort((a, b) => (b.version || 1) - (a.version || 1))
+        .map(r => ({ id: r.id, version: r.version || 1, estado: r.estado, estadoTexto: r.estadoTexto, fecha: r.publicada || r.actualizada || r.creada, titulo: r.titulo })));
     },
     publishedList() {
       return clone(records.filter(r => r.estado === 'publicada'));
@@ -137,12 +151,9 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
       Object.assign(item, { estado, estadoTexto: STATES[estado], transiciones: NEXT[estado], nota: nota.trim(), actualizada: fecha, revisor: usuario });
       if (estado === 'publicada') {
         item.publicada = fecha;
-        // Archivar automáticamente versiones anteriores publicadas de la misma capa
-        const norm = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const t = norm(item.titulo);
-        const c = norm(item.capa);
+        // Archivar la versión anterior de la misma capa (misma clave, o la que esta versión reemplaza)
         records.forEach(prev => {
-          if (prev.id !== item.id && prev.estado === 'publicada' && (norm(prev.titulo) === t || norm(prev.capa) === c || prev.id === item.reemplazaId)) {
+          if (prev.id !== item.id && prev.estado === 'publicada' && (prev.layerKey === item.layerKey || prev.id === item.reemplazaId)) {
             prev.estado = 'archivada';
             prev.estadoTexto = STATES.archivada;
             prev.transiciones = NEXT.archivada;
@@ -171,7 +182,7 @@ export function createReviewDemo({ initialLayers = DEMO_LAYERS, loadGeoJSON = fi
       geometries.delete(id);
       return true;
     },
-    reset() { records = seed(); geometries.clear(); }
+    reset() { records = seed(initialLayers); geometries.clear(); }
   };
 }
 

@@ -16,10 +16,11 @@ import { onSessionEnd } from './session.js';
 import { layers, addSessionLayer, selectLayer, zoomToLayer, refreshSessionData } from './layers.js';
 import {
   studies, studyById, addStudy, removeStudy, clearStudies, applyInfo, renameStudyLayer, studyComplete, missingFields, studyPayload,
-  metaFromStudy, openStudyEditor, onStudyDeleted, resetAuto, FIELD_LABELS
+  metaFromStudy, openStudyEditor, onStudyDeleted, resetAuto, FIELD_LABELS, STUDY_REQ
 } from './studies.js';
 import { router } from '../router.js';
 import { reviewDemo } from '../lib/review-demo.js';
+import { layerKey } from '../lib/layer-key.js';
 
 const SHP_PARTS = ['shp', 'shx', 'dbf', 'prj', 'cpg', 'qpj', 'sbn', 'sbx', 'xml'];
 
@@ -334,87 +335,47 @@ async function harvestStudy(it, result) {
   checkPublishedVersion(it);
 }
 
-/* Verificación de versión previa publicada: si ya existe, se informa que se archivará la anterior */
+/* Versión previa publicada de la misma capa (por clave estable, no por el título). Si existe, la persona elige
+   entre actualizar esa capa (la anterior se archiva al publicar) o crear una capa nueva con el mismo nombre. */
 function checkPublishedVersion(it) {
-  const norm = s => String(s || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const name = norm(it.layerName);
-  let prev = null;
-  if (!hasApi()) {
-    prev = reviewDemo.findPublished(it.layerName, it.layerName);
-  } else {
-    prev = layers.entries.find(e => e.remote && norm(e.name) === name);
-  }
-  if (prev) {
-    it.checks.push([
-      'info',
-      'Actualización de capa existente',
-      `Ya existe una versión publicada («${prev.titulo || prev.name}»). Al publicarse esta versión, la anterior se archivará automáticamente y luego podrá eliminarse si se desea.`
-    ]);
-  }
+  const title = 'Ya existe una capa publicada con este nombre';
+  it.checks = it.checks.filter(c => c[1] !== title);
+  const key = layerKey(it.layerName);
+  const prev = !hasApi() ? reviewDemo.findPublished(key) : layers.entries.find(e => e.remote && layerKey(e.name) === key);
+  it.previous = prev ? { titulo: prev.titulo || prev.name } : null;
+  if (!prev) { it.updateMode = null; return; }
+  if (!it.updateMode) it.updateMode = 'actualizar';
+  it.checks.push(['info', title, '«' + it.previous.titulo + '». Elige si esta carga actualiza esa capa (la versión anterior se archivará al publicar) o si es una capa nueva.']);
 }
 
-/* Generación automática de la ficha de estudio institucional (perfil ISO 19115) */
+/* Ficha inicial del estudio. Solo se escribe lo que se puede afirmar con datos reales del archivo o con un
+   valor seguro, y cada uno queda marcado con su origen. Responsable, fuente, licencia y procedencia NO se
+   inventan: los escribe una persona antes de enviar a revisión. */
 function autoGenerateStudy(it) {
   const rec = studyById(it.id);
   if (!rec) return;
-  const now = new Date().toISOString().slice(0, 10);
+  const free = k => !String(rec[k] || '').trim() && !rec.edited.includes(k);
+  const made = [];
+  const set = (k, v, origin) => { rec[k] = v; rec.auto[k] = origin; made.push(k); };
 
-  if (!rec.sTitle || rec.auto.sTitle === 'nombre del archivo') {
-    const cleanName = it.layerName.replace(/[_-]+/g, ' ').trim();
-    rec.sTitle = cleanName ? cleanName.charAt(0).toUpperCase() + cleanName.slice(1) : 'Estudio cartográfico';
-  }
-
-  if (!rec.sTheme) {
-    const fields = it.geojson ? [...new Set(it.geojson.features.slice(0, 200).flatMap(f => Object.keys(f.properties || {})))] : (it.table?.headers || []);
-    rec.sTheme = themeFromLayer(it.layerName, fields) || 'División territorial';
-    rec.auto.sTheme = 'asignado automáticamente';
-  }
-
-  if (!rec.sDate) {
-    rec.sDate = now;
-    rec.auto.sDate = 'fecha de carga';
-  }
-
-  if (!rec.sResp) {
-    rec.sResp = 'CEDESU · Universidad Autónoma de Campeche';
-    rec.auto.sResp = 'institución responsable';
-  }
-
-  if (!rec.sSource) {
-    rec.sSource = 'Centro de Estudios de Desarrollo Sustentable y Aprovechamiento de la Vida Silvestre (CEDESU)';
-    rec.auto.sSource = 'fuente institucional';
-  }
-
-  if (!rec.sLic) {
-    rec.sLic = 'Uso restringido (solo CEDESU)';
-    rec.auto.sLic = 'licencia predeterminada';
-  }
-
-  if (!rec.sAccess) {
-    rec.sAccess = 'Pública';
-    rec.auto.sAccess = 'acceso predeterminado';
-  }
-
-  if (!rec.sDesc) {
+  if (free('sDate')) set('sDate', new Date().toISOString().slice(0, 10), 'por defecto: fecha de la carga');
+  if (free('sAccess')) set('sAccess', 'Interna', 'por defecto: la opción más restrictiva');
+  if (free('sDesc')) {
     const n = it.geojson?.features?.length;
-    const countText = n ? ` con ${n.toLocaleString('es-MX')} entidades espaciales` : '';
-    const crsText = it.crs ? ` en sistema de referencia ${it.crs}` : '';
-    rec.sDesc = `Capa cartográfica de ${rec.sTitle}${countText}${crsText}. Integrada y procesada en DeltaMap-CEDESU para consulta e investigación territorial.`;
-    rec.auto.sDesc = 'generada automáticamente';
+    const parts = [`Capa «${rec.sTitle || it.layerName}»`];
+    if (n) parts.push(`con ${n.toLocaleString('es-MX')} ${n === 1 ? 'entidad' : 'entidades'}`);
+    if (it.crs) parts.push(`en ${it.crs}`);
+    set('sDesc', `${parts.join(' ')}.`, 'generada con los datos del archivo');
   }
-
-  if (!rec.sLineage) {
-    rec.sLineage = 'Validación de estructura vectorial, reproyección y normalización cartográfica generada por la plataforma DeltaMap-CEDESU.';
-    rec.auto.sLineage = 'generado automáticamente';
+  if (free('sKeywords')) {
+    const words = [rec.sTheme, rec.sTitle].filter(Boolean).join(', ');
+    if (words) set('sKeywords', words, 'generada con el título y el tema');
   }
-
-  if (!rec.sKeywords) {
-    rec.sKeywords = [rec.sTitle, rec.sTheme, 'Campeche', 'CEDESU'].filter(Boolean).join(', ');
-    rec.auto.sKeywords = 'generadas automáticamente';
-  }
-
-  rec.listed = true;
-  it.checks.push(['ok', 'Ficha de estudio generada automáticamente', 'La ficha técnica (ISO 19115) se completó con metadatos del archivo e información institucional.']);
+  if (!made.length) return;
+  const missing = STUDY_REQ.filter(k => !String(rec[k] || '').trim());
+  const title = 'Ficha de estudio iniciada';
+  it.checks = it.checks.filter(c => c[1] !== title);
+  it.checks.push(['info', title, `Se pusieron valores iniciales (${made.map(k => FIELD_LABELS[k].toLowerCase()).join(', ')}); revísalos.${missing.length ? ` Falta escribir: ${missing.map(k => FIELD_LABELS[k].toLowerCase()).join(', ')}.` : ''}`]);
 }
 
 /* Sin metadatos que lo digan, el tema se deduce del nombre de la capa y de sus campos (queda como sugerido) */
@@ -656,6 +617,8 @@ function sendOne(it) {
     const fd = new FormData();
     Object.values(it.parts).forEach(file => file && fd.append('archivos', file));
     fd.append('capa', it.layerName);
+    fd.append('clave', layerKey(it.layerName));
+    if (it.previous) fd.append('modo', it.updateMode || 'actualizar');
     if (it.hash) fd.append('sha256', it.hash);
     fd.append('estudio', JSON.stringify(studyPayload(studyById(it.id))));
     /* Lo que decidió la persona y el servidor necesita para repetir la revisión */
@@ -713,13 +676,15 @@ async function sendLayers(list) {
     editStudy(first.id);
     return;
   }
+  const defaults = list.flatMap(id => Object.entries(studyById(byId(id).id)?.auto || {}).filter(([, v]) => v.startsWith('por defecto')).map(([k]) => FIELD_LABELS[k].toLowerCase()));
+  const defaultsText = defaults.length ? ` Se enviarán con valores por defecto (${[...new Set(defaults)].join(', ')}); puedes cambiarlos en el estudio.` : '';
   const single = list.length === 1 && batch.items.filter(canSend).length > 1;
   const pending = single ? 0 : batch.items.filter(it => ['input', 'blocked'].includes(it.state)).length;
   const ok = await confirmAction({
     title: single ? `Enviar «${byId(list[0]).layerName}» a revisión` : `Enviar ${list.length} ${list.length === 1 ? 'capa' : 'capas'} a revisión`,
     text: `${single
       ? 'Se envía sola, con su estudio; las demás capas siguen en el lote. Quedará en cuarentena y pendiente de aprobación; no se publicará todavía.'
-      : 'Cada capa se envía por separado, con su propio estudio. Quedarán en cuarentena y pendientes de aprobación; no se publicarán todavía.'}${pending ? ` ${pending} ${pending === 1 ? 'capa con pendientes no se enviará' : 'capas con pendientes no se enviarán'}.` : ''}`,
+      : 'Cada capa se envía por separado, con su propio estudio. Quedarán en cuarentena y pendientes de aprobación; no se publicarán todavía.'}${defaultsText}${pending ? ` ${pending} ${pending === 1 ? 'capa con pendientes no se enviará' : 'capas con pendientes no se enviarán'}.` : ''}`,
     ok: 'Enviar'
   });
   if (!ok) return;
@@ -734,6 +699,8 @@ async function sendLayers(list) {
       const study = studyPayload(studyById(it.id));
       const added = reviewDemo.add({
         id: it.id,
+        layerKey: layerKey(it.layerName),
+        modo: it.updateMode || 'actualizar',
         titulo: it.layerName,
         formato: it.format || it.srcFormat || 'geojson',
         entidades: it.geojson?.features?.length || 0,
