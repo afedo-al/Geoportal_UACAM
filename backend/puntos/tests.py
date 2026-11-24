@@ -32,10 +32,14 @@ def imagen(formato='PNG', tam=(8, 6), exif=False):
 
 
 def leer(cliente, ruta):
-    """GET de una fotografía: lee el contenido y cierra la respuesta (en Windows un archivo abierto no se puede borrar)."""
+    """GET de una fotografía leyendo todo el contenido.
+
+    Leerlo completo hace que el cliente de pruebas cierre el archivo (en Windows un archivo abierto no se puede
+    borrar). No se llama a `close()` otra vez: eso dispara `request_finished`, que cierra la conexión a la base
+    dentro de la transacción de la prueba y, en PostgreSQL, rompe las pruebas siguientes.
+    """
     r = cliente.get(ruta)
     contenido = b''.join(r.streaming_content) if r.status_code == 200 else b''
-    r.close()
     return r, contenido
 
 
