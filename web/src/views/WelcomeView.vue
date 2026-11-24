@@ -25,10 +25,7 @@ const router = useRouter();
 const logoUacam = `${import.meta.env.BASE_URL}img/uacam.webp`;
 const logoCedesu = `${import.meta.env.BASE_URL}img/cedesu.webp`;
 
-function go(path) {
-  try { localStorage.setItem('cedesuWelcomeVisitedV3', '1'); } catch { /* sin almacenamiento */ }
-  router.push(path);
-}
+function go(path) { router.push(path); }
 function focusSearch() { document.querySelector('input[type=search]')?.focus(); }
 
 /* Accesos: todos ven el mapa y el catálogo; con sesión se suman los de trabajo */

@@ -51,30 +51,10 @@ export const router = createRouter({
 
 router.beforeEach(async (to, from) => {
 
-  // Mostrar la bienvenida en la primera visita.
+  // Al abrir el sitio en su dirección principal se muestra siempre la bienvenida.
+  // Un enlace directo (por ejemplo #/catalogo) se respeta, y dentro de la app «Mapa» va al mapa.
   if (to.name === 'mapa' && !from.name) {
-    try {
-      const revisado = sessionStorage.getItem(
-        'cedesuWelcomeChecked'
-      );
-
-      if (!revisado) {
-        sessionStorage.setItem(
-          'cedesuWelcomeChecked',
-          '1'
-        );
-
-        const visitado = localStorage.getItem(
-          'cedesuWelcomeVisitedV3'
-        );
-
-        if (!visitado) {
-          return '/bienvenida';
-        }
-      }
-    } catch {
-      // No bloquear la navegación.
-    }
+    return '/bienvenida';
   }
 
   // Las páginas públicas no requieren sesión.
