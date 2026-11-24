@@ -516,6 +516,10 @@ main { height: calc(100dvh - var(--header-h)); min-height: 0; overflow: clip; }
   repeating-radial-gradient(circle at 65% 60%, transparent 0 6px, rgba(150, 120, 80, 0.45) 6px 7px),
   linear-gradient(160deg, #d9e6c6, #efe7cf); }
 
+.thumb-claro { background-color: #f4f4f2; background-image:
+  radial-gradient(circle at 25% 70%, #d6dde3 0 28%, transparent 29%),
+  linear-gradient(160deg, #fafaf8, #ececea); }
+
 /* Herramientas del mapa (barra vertical flotante) */
 .map-tools {
   position: absolute; z-index: 8; top: 12px; left: calc(var(--inset-l) + 22px);

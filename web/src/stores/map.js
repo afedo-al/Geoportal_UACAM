@@ -23,13 +23,25 @@ import DoubleClickZoom from 'ol/interaction/DoubleClickZoom.js';
 import { startTask, showToast, ui } from './ui.js';
 import { START_BOUNDS, STATE_BOUNDS, formatCoord, scaleDenominator, niceScale, geodesicArea, fmtLen, fmtArea } from '../lib/geo.js';
 import { safePhotoURL, fmtDay } from '../lib/format.js';
+import { CFG } from '../config.js';
 
 /* ---------------- mapas base ---------------- */
 export const BASEMAPS = {
+  /* Fondo discreto de CARTO (sin clave). Sus límites administrativos son tenues y no se pueden quitar. */
+  claro: { urls: ['a', 'b', 'c', 'd'].map(s => `https://${s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png`), maxZoom: 19, attributions: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>' },
   osm: { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxZoom: 19, attributions: '© colaboradores de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' },
   satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', maxZoom: 19, attributions: '© Esri, Maxar, Earthstar Geographics' },
   topo: { urls: ['a', 'b', 'c'].map(s => `https://${s}.tile.opentopomap.org/{z}/{x}/{y}.png`), maxZoom: 17, attributions: '© <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA), datos © OpenStreetMap' }
 };
+
+/* Estilo propio sin límites administrativos, solo si se configuró la clave y el estilo de MapTiler */
+if (CFG.mapStyle.key && CFG.mapStyle.id) {
+  BASEMAPS.limpio = {
+    url: `https://api.maptiler.com/maps/${encodeURIComponent(CFG.mapStyle.id)}/{z}/{x}/{y}.png?key=${encodeURIComponent(CFG.mapStyle.key)}`,
+    maxZoom: 19,
+    attributions: '© <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener">MapTiler</a> © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">colaboradores de OpenStreetMap</a>'
+  };
+}
 
 export const mapState = reactive({
   ready: false,

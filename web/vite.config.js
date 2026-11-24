@@ -9,7 +9,7 @@ import compression from 'compression';
    servidor de desarrollo necesita su cliente de recarga en caliente. En
    producción el servidor (nginx) debe enviarla también como cabecera, con
    frame-ancestors, que no funciona en una etiqueta meta. */
-const TILES = 'https://tile.openstreetmap.org https://server.arcgisonline.com https://*.tile.opentopomap.org';
+const TILES = 'https://tile.openstreetmap.org https://server.arcgisonline.com https://*.tile.opentopomap.org https://*.basemaps.cartocdn.com https://api.maptiler.com';
 const CSP = [
   "default-src 'self'",
   "script-src 'self'",

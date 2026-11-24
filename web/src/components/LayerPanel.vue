@@ -6,7 +6,7 @@ import LayerSym from './LayerSym.vue';
 import { ui, setDock, openMenu } from '../stores/ui.js';
 import { session } from '../stores/session.js';
 import { layers, toggleLayer, toggleGroup, selectLayer, moveLayer, showProps, showLayerInfo, zoomToLayer, removeSessionLayer } from '../stores/layers.js';
-import { mapState, setBasemap } from '../stores/map.js';
+import { mapState, setBasemap, BASEMAPS } from '../stores/map.js';
 import { openStudyEditor, studyById } from '../stores/studies.js';
 import { GROUPS } from '../lib/datasets.js';
 import { useSheet } from '../lib/ui-helpers.js';
@@ -16,7 +16,13 @@ const dock = ref(null);
 const filterEl = ref(null);
 const sheet = useSheet('left', () => dock.value);
 
-const BASES = [['osm', 'Calles', 'thumb-osm'], ['satellite', 'Satélite', 'thumb-sat'], ['topo', 'Topográfico', 'thumb-topo']];
+const BASES = [
+  ['osm', 'Calles', 'thumb-osm'],
+  ...(BASEMAPS.limpio ? [['limpio', 'Sin límites', 'thumb-claro']] : []),
+  ['claro', 'Claro', 'thumb-claro'],
+  ['satellite', 'Satélite', 'thumb-sat'],
+  ['topo', 'Topográfico', 'thumb-topo']
+];
 
 const q = computed(() => layers.filter.trim().toLowerCase());
 const groups = computed(() => GROUPS.map(g => {
