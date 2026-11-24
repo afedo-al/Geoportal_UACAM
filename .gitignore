@@ -5,6 +5,7 @@
 !/web/
 !/deploy/
 !/docs/
+!/backend/
 !/.github/
 !/.github/workflows/
 node_modules/
@@ -12,3 +13,10 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Servicio de publicación: entorno, datos locales y cachés
+backend/.venv/
+backend/datos/
+__pycache__/
+*.pyc
+*.sqlite3

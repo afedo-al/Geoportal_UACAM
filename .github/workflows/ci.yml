@@ -36,3 +36,54 @@ jobs:
 
       - name: Verify
         run: npm run verify
+
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: geoportal
+          POSTGRES_PASSWORD: geoportal
+          POSTGRES_DB: geoportal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U geoportal"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GEOPORTAL_DATABASE_URL: postgresql://geoportal:geoportal@127.0.0.1:5432/geoportal
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements-prod.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-prod.txt
+
+      - name: Migrations are up to date
+        run: python manage.py makemigrations --check --dry-run
+        env:
+          GEOPORTAL_SECRET_KEY: solo-para-ci-0123456789-0123456789-0123456789
+          GEOPORTAL_ALLOWED_HOSTS: localhost
+
+      - name: Tests (PostgreSQL)
+        run: python manage.py test
+
+      - name: Deployment checks
+        run: python manage.py check --deploy --fail-level WARNING
+        env:
+          GEOPORTAL_SECRET_KEY: solo-para-ci-0123456789-0123456789-0123456789-abcdef
+          GEOPORTAL_ALLOWED_HOSTS: geoportal.ejemplo.mx

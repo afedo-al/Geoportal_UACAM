@@ -1,7 +1,8 @@
 # Contrato de la API (lo que la interfaz espera del servidor)
 
-Fase 5 del plan. El servidor todavía no existe; este documento fija lo que `web/src/` ya usa, para que el
-backend se construya contra el mismo contrato. **El navegador nunca es la barrera: el servidor repite
+Este documento fija lo que `web/src/` usa, para que el servicio de `backend/` se construya contra el mismo
+contrato. **Ya implementado (fases 0 a 2):** `/salud`, `/sesion`, `/demo` y `/puntos` con lote y fotografías; su
+referencia exacta está en [backend/README.md](../backend/README.md#api-implementada). Lo demás sigue pendiente. **El navegador nunca es la barrera: el servidor repite
 todas las validaciones y comprueba el rol en cada petición.**
 
 Base: `VITE_API_BASE` (mismo origen o HTTPS). Cabeceras: `X-Requested-With: GeoportalCEDESU` y `X-CSRFToken`.
@@ -48,7 +49,11 @@ archivada → en_revision
 `GET /capas` → `{ capas: [{ id, nombre, entidades, publicada, actualizada, estudio, crs, bbox, formato, layerKey, version, versiones: [{ id, version, estado, estadoTexto, fecha }] }] }`.
 `GET /capas/:id.geojson` → geometría completa.
 
-## Puntos de campo
+## Puntos de campo (implementado)
+
+Todos los usuarios con sesión ven todos los puntos; solo el autor o `admin` los edita o borra (403 si no).
+El `id` lo genera el servidor. `PUT` cambia solo lo que se manda. En `photo`: ausente = conservar, vacía = quitar,
+`data:image/png|jpeg|webp;base64,...` = reemplazar (hasta 2 MB; se vuelve a codificar sin metadatos).
 
 `GET /puntos`, `POST /puntos`, `PUT /puntos/:id`, `DELETE /puntos/:id`, `POST /puntos/lote` `{ puntos: [...] }`.
 Campos del punto: `id, name, lat, lon, altitude (m, -500..9000, opcional), property, author, type, description, date, time, photo`.

@@ -7,7 +7,9 @@ Geoportal para reunir, revisar, consultar y publicar con control la información
 ![Vite 7](https://img.shields.io/badge/Vite-7-646cff)
 ![OpenLayers 10](https://img.shields.io/badge/OpenLayers-10-1f6b75)
 ![Node >= 20.19](https://img.shields.io/badge/Node-%E2%89%A5%2020.19-339933)
-![Pruebas](https://img.shields.io/badge/pruebas-41%20(node%3Atest)-informational)
+![Django 5.2](https://img.shields.io/badge/Django-5.2-0c4b33)
+![Python >= 3.12](https://img.shields.io/badge/Python-%E2%89%A5%203.12-3776ab)
+![Pruebas](https://img.shields.io/badge/pruebas-41%20web%20%C2%B7%2080%20backend-informational)
 ![Licencia](https://img.shields.io/badge/licencia-sin%20definir-lightgrey)
 
 > Este repositorio es una implementación de desarrollo. No es el repositorio oficial de la UACAM ni del CEDESU.
@@ -23,7 +25,7 @@ Lo que lo distingue:
 - **Procedencia visible.** Cada dato de la ficha indica si viene del archivo, es una sugerencia o un valor por defecto.
 - **Sin instalación para quien consulta.** Funciona en el navegador, en escritorio y en celular.
 
-Estado actual: la **interfaz está completa y funciona con datos de ejemplo**. El **servicio de publicación (API) no existe todavía**; sin él no hay usuarios reales, persistencia ni publicación definitiva. Ver [Limitaciones y hoja de ruta](#limitaciones-y-hoja-de-ruta).
+Estado actual: la **interfaz está completa**. El **servicio de publicación** (Django, en `backend/`) ya cubre **sesiones con roles y los puntos de campo compartidos**; las cargas, la revisión en el servidor y la publicación están pendientes. Ver [Limitaciones y hoja de ruta](#limitaciones-y-hoja-de-ruta).
 
 ## Índice
 
@@ -90,10 +92,17 @@ flowchart LR
     ST --> LS
   end
   NGINX["nginx: sitio estático y proxy /api"]
-  API["Servicio de publicación (pendiente)"]
+  subgraph SRV["Servicio de publicación (Django)"]
+    API["Sesiones y roles · Puntos de campo"]
+    PEND["Cargas, revisión y capas (pendiente)"]
+  end
+  DB[("PostgreSQL")]
+  FOTOS[("Carpeta de datos: fotografías")]
   TILES["Teselas: OpenStreetMap, Esri, OpenTopoMap"]
   NAV -->|"HTTPS"| NGINX
   NGINX -->|"/api"| API
+  API --> DB
+  API --> FOTOS
   OL -->|"teselas del mapa base"| TILES
 ```
 
@@ -107,6 +116,9 @@ Decisiones clave:
 | Estado en módulos reactivos (sin librería de estado) | La aplicación es pequeña; evita una dependencia más. |
 | API configurable al compilar (`VITE_API_BASE`) | Sin API la interfaz lo indica en lugar de simular una publicación. |
 | Revisión en navegador solo como primera barrera | La validación definitiva debe repetirla el servidor. |
+| Django para el servicio | Sesiones con cookie y CSRF que la interfaz ya esperaba, validadores de contraseñas y migraciones. |
+| Configuración solo por variables de entorno | Ningún secreto en el código; sin clave secreta el servicio no arranca en producción. |
+| Bitácora de solo agregar | Accesos y cambios quedan registrados y el código no puede editarlos ni borrarlos. |
 
 ## Inicio rápido
 
@@ -141,9 +153,15 @@ Comandos disponibles, desde `web/`:
 | `npm run start` | Compila y sirve en un solo paso. |
 | `npm run verify` | Pruebas y build; es lo que ejecuta la integración continua. |
 
-Cuenta de demostración **solo para uso local**: en `npm run dev` existe una cuenta que se valida en el navegador y permite recorrer las pantallas de administración. Sus datos aparecen en el diálogo «Iniciar sesión». No protege nada y no está en el build de producción.
+Cuenta de demostración **solo para uso local**: en `npm run dev` sin servicio de publicación existe una cuenta que se valida en el navegador y permite recorrer las pantallas de administración. Sus datos aparecen en el diálogo «Iniciar sesión». No protege nada y no está en el build de producción.
 
 No abras `web/dist/index.html` con doble clic: los navegadores no cargan módulos desde `file://`.
+
+Para trabajar con el servicio de publicación (cuentas reales y puntos compartidos), sigue [backend/README.md](backend/README.md) y arranca la interfaz con el proxy:
+
+```bash
+GEOPORTAL_API=http://127.0.0.1:8000 npm run dev
+```
 
 ## Configuración
 
@@ -167,7 +185,9 @@ VITE_API_BASE=/api npm run build
 
 Constantes en código (no son variables de entorno): cierre por inactividad de 30 minutos en `web/src/config.js`; límites de carga en `web/src/lib/filecheck.js`.
 
-Los secretos del servicio de publicación no pertenecen a este repositorio: deben definirse como variables de entorno del servidor y nunca en el código de la interfaz.
+En Git Bash para Windows antepón `MSYS_NO_PATHCONV=1` al build: si no, `/api` se convierte en una ruta de disco.
+
+Las variables del servicio de publicación (`GEOPORTAL_SECRET_KEY`, `GEOPORTAL_ALLOWED_HOSTS`, `GEOPORTAL_DATABASE_URL` y otras) están en [backend/README.md](backend/README.md#configuración) y en la plantilla [backend/.env.example](backend/.env.example). Los secretos se definen como variables de entorno del servidor, nunca en el código.
 
 ## Despliegue
 
@@ -184,10 +204,12 @@ VITE_API_BASE=/api npm run build
 ```
 
 2. Servir `web/dist` con nginx e incluir [deploy/nginx-seguridad.conf](deploy/nginx-seguridad.conf) dentro del bloque `server` con TLS. Ese archivo define las cabeceras de seguridad, la compresión estática y el proxy de `/api` a `127.0.0.1:8000`.
+3. Instalar el servicio de publicación con gunicorn en `127.0.0.1:8000` y PostgreSQL, según [backend/README.md](backend/README.md#producción).
 
 Advertencias:
 
-- **Sin API no hay persistencia.** Los puntos de campo y las ediciones del catálogo se guardan solo en el navegador de quien los captura y se pierden al borrar los datos del sitio.
+- **Sin el servicio no hay persistencia.** Los puntos de campo y las ediciones del catálogo se guardan solo en el navegador de quien los captura y se pierden al borrar los datos del sitio.
+- **Respaldos:** la base de datos y la carpeta `GEOPORTAL_DATA_DIR` (fotografías) se respaldan juntas.
 - **TLS obligatorio.** La ubicación del dispositivo y las cabeceras HSTS lo requieren.
 - Publicar únicamente `web/dist`; no `docs/`, respaldos ni archivos temporales (el archivo de nginx ya lo bloquea).
 - `client_max_body_size` está en 410 MB para cargas de hasta 400 MB por lote.
@@ -221,30 +243,35 @@ Privacidad:
 
 La validación en el navegador **no sustituye** la del servidor.
 
+Medidas del servicio de publicación (detalle en [backend/README.md](backend/README.md#seguridad)): configuración que falla cerrada sin clave secreta, cookies `HttpOnly` y `__Host-` en producción, caducidad por inactividad y absoluta, bloqueo tras cinco intentos fallidos, mismo mensaje para cuenta inexistente o contraseña errónea, permisos comprobados en cada petición, fotografías revalidadas y sin metadatos EXIF, y bitácora de solo agregar.
+
 ## Referencia de la API
 
-El servicio no existe en este repositorio. La tabla es el contrato que la interfaz ya espera (ver [docs/api-contrato.md](docs/api-contrato.md)); todas las rutas cuelgan de `VITE_API_BASE`.
+Todas las rutas cuelgan de `/api` (`VITE_API_BASE`). La columna **Estado** indica qué ya responde el servicio de `backend/`; el resto es el contrato que la interfaz espera ([docs/api-contrato.md](docs/api-contrato.md)).
 
-| Método | Ruta | Descripción |
-|---|---|---|
-| GET | `/sesion` | Estado de la sesión actual; deja la cookie CSRF. |
-| POST | `/sesion` | Inicia sesión (`usuario`, `contrasena`, `codigo` opcional). |
-| DELETE | `/sesion` | Cierra la sesión. |
-| GET | `/demo` | Datos de la cuenta de demostración, si el servidor la ofrece. |
-| GET | `/capas` | Capas publicadas con su ficha. |
-| GET | `/capas/<id>.geojson` | Geometría de una capa publicada. |
-| PUT | `/capas/<id>/estilo` | Guarda la simbología de una capa (`{ "simbologia": {...} }`). |
-| GET | `/cargas?estado=` | Cargas, filtradas por estado, con totales. |
-| POST | `/cargas/` | Envía una capa (multipart: archivos, `capa`, `clave`, `sha256`, `estudio`, `crs`, `mapeo`, `modo`). |
-| GET | `/cargas/<id>` | Detalle de una carga. |
-| GET | `/cargas/<id>/geojson` | Vista previa de la carga. |
-| POST | `/cargas/<id>/estado` | Cambia el estado (`estado`, `nota`). |
-| DELETE | `/cargas/<id>` | Elimina una carga archivada. |
-| GET | `/puntos` | Puntos de campo. |
-| POST | `/puntos` | Crea un punto. |
-| PUT | `/puntos/<id>` | Edita un punto. |
-| DELETE | `/puntos/<id>` | Elimina un punto. |
-| POST | `/puntos/lote` | Crea varios puntos (importación de Excel). |
+| Método | Ruta | Descripción | Estado |
+|---|---|---|---|
+| GET | `/salud` | El servicio y la base responden. | Implementada |
+| GET | `/sesion` | Estado de la sesión actual; deja la cookie CSRF. | Implementada |
+| POST | `/sesion` | Inicia sesión con usuario o correo (`usuario`, `contrasena`). | Implementada |
+| DELETE | `/sesion` | Cierra la sesión. | Implementada |
+| GET | `/demo` | Cuenta de demostración; 404 salvo en desarrollo configurado. | Implementada |
+| GET | `/puntos` | Puntos de campo del equipo. | Implementada |
+| POST | `/puntos` | Crea un punto. | Implementada |
+| GET | `/puntos/<id>` | Un punto. | Implementada |
+| PUT | `/puntos/<id>` | Edita un punto (autor o administración). | Implementada |
+| DELETE | `/puntos/<id>` | Elimina un punto (autor o administración). | Implementada |
+| POST | `/puntos/lote` | Crea varios puntos (importación de Excel). | Implementada |
+| GET | `/puntos/<id>/foto` | Fotografía del punto. | Implementada |
+| GET | `/capas` | Capas publicadas con su ficha. | Pendiente |
+| GET | `/capas/<id>.geojson` | Geometría de una capa publicada. | Pendiente |
+| PUT | `/capas/<id>/estilo` | Guarda la simbología de una capa (`{ "simbologia": {...} }`). | Pendiente |
+| GET | `/cargas?estado=` | Cargas, filtradas por estado, con totales. | Pendiente |
+| POST | `/cargas/` | Envía una capa (multipart: archivos, `capa`, `clave`, `sha256`, `estudio`, `crs`, `mapeo`, `modo`). | Pendiente |
+| GET | `/cargas/<id>` | Detalle de una carga. | Pendiente |
+| GET | `/cargas/<id>/geojson` | Vista previa de la carga. | Pendiente |
+| POST | `/cargas/<id>/estado` | Cambia el estado (`estado`, `nota`). | Pendiente |
+| DELETE | `/cargas/<id>` | Elimina una carga archivada. | Pendiente |
 
 Transiciones de estado que la interfaz permite:
 
@@ -258,7 +285,7 @@ Transiciones de estado que la interfaz permite:
 
 ## Modelo de datos
 
-No hay base de datos en este repositorio. Estas son las entidades que maneja la interfaz.
+El servicio guarda en la base de datos las cuentas con su **perfil** (rol `admin` o `investigador` y cargo), la **bitácora** (fecha, evento, cuenta, dirección y detalle) y los **puntos de campo**; las fotografías van a la carpeta de datos. Las fichas de estudio y las cargas todavía solo existen en la interfaz.
 
 **Estudio** (ficha de una capa; `web/src/lib/study-fields.js`)
 
@@ -304,7 +331,6 @@ No hay base de datos en este repositorio. Estas son las entidades que maneja la 
 | `cedesuGPSImports` | Índice de los Excel importados. |
 | `cedesuLayerStyles` | Simbología editada. |
 | `cedesuDatasetEdits`, `cedesuHiddenDatasets` | Fichas editadas y conjuntos ocultos de las capas de ejemplo. |
-| `cedesuWelcomeVisitedV3` | Marca de que ya se vio el Inicio. |
 
 ## Pruebas
 
@@ -327,13 +353,27 @@ Son 41 pruebas unitarias con `node --test`, sin dependencias adicionales. Cubren
 | `gps-layer.test.js` | Conversión de puntos a capa. |
 | `point-ids.test.js` | Identificadores de punto válidos y únicos. |
 
-No hay pruebas de las vistas ni de integración con navegador. La integración continua ejecuta `npm run verify` en cada push y pull request a `main` ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+Servicio de publicación, desde `backend/`:
+
+```bash
+.venv/Scripts/python manage.py test
+```
+
+Son 80 pruebas: sesiones, bloqueo por intentos, roles, CSRF, bitácora, puntos, lotes y fotografías ([detalle](backend/README.md#pruebas)).
+
+No hay pruebas automatizadas de las vistas de la interfaz ni de integración con navegador. La integración continua ejecuta `npm run verify` y las pruebas del servicio contra PostgreSQL 16 en cada push y pull request a `main` ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 ## Estructura del proyecto
 
 ```text
 .
-├── .github/workflows/ci.yml        # Pruebas y build en cada cambio a main
+├── .github/workflows/ci.yml        # Pruebas y build de la interfaz y del servicio en cada cambio a main
+├── backend/                        # Servicio de publicación (Django)
+│   ├── config/                     # Configuración por variables de entorno, rutas y WSGI
+│   ├── nucleo/                     # Errores JSON, cabeceras de seguridad, bitácora y salud
+│   ├── cuentas/                    # Perfil y rol, sesión, bloqueo por intentos, crear_usuario
+│   ├── puntos/                     # Puntos de campo, validación y fotografías
+│   └── .env.example                # Plantilla de variables sin secretos
 ├── deploy/
 │   └── nginx-seguridad.conf        # Cabeceras de seguridad, compresión y proxy /api
 ├── docs/
@@ -371,22 +411,23 @@ No hay pruebas de las vistas ni de integración con navegador. La integración c
 
 Limitaciones actuales:
 
-- **No existe el servicio de publicación.** Sin él no hay usuarios reales, persistencia compartida, segunda validación de archivos, antivirus ni bitácora permanente.
+- **El servicio de publicación cubre solo sesiones y puntos de campo.** Aún no hay cargas en el servidor, segunda validación de archivos, antivirus, capas publicadas ni filtro por acceso.
 - **La revisión y la publicación solo funcionan en modo local de desarrollo** y viven únicamente en la pestaña.
 - **Una capa publicada con acceso «Interna» se muestra igual en modo local.** Filtrar por acceso corresponde al servidor.
-- **Los puntos de campo y las ediciones del catálogo se guardan solo en el navegador.**
+- **Las ediciones del catálogo y la simbología se guardan solo en el navegador.**
+- **Sin segundo factor de acceso.** La interfaz lo admite, pero el servicio todavía no lo pide.
+- **No probado fuera de la integración continua:** PostgreSQL, gunicorn y el despliegue con TLS.
 - **Capas de ejemplo.** Las de `web/public/data/` son de ejemplo; la de climas cita a CONABIO y las de municipios y entidades tienen su procedencia por documentar.
 - GeoPackage y GeoTIFF solo se validan en el navegador; no se previsualizan.
-- No hay pruebas automatizadas de las vistas ni de integración.
-- El repositorio no versiona la carpeta `backend/`.
+- No hay pruebas automatizadas de las vistas de la interfaz ni de integración con navegador.
 
-Hoja de ruta, en orden:
+Hoja de ruta del servicio, en orden (las fases 0 a 2 ya están hechas):
 
-1. Construir el servicio de publicación según [docs/api-contrato.md](docs/api-contrato.md): sesiones y roles, cargas en cuarentena, revisión, capas publicadas y puntos.
-2. Repetir en el servidor las validaciones de archivos y de la ficha.
-3. Persistir versiones y bitácora; conservar la bitácora al eliminar una capa.
-4. Filtrar capas por acceso en el servidor.
-5. Excluir el flujo de revisión local del build de producción.
+1. Fase 3 · Recepción de cargas en cuarentena con su ficha validada.
+2. Fase 4 · Segunda revisión automática: firmas, ZIP, XML, Shapefile, antivirus y conversión con GDAL.
+3. Fase 5 · Revisión y publicación: transiciones por rol, versiones, bitácora permanente, capas publicadas y filtro por acceso.
+4. Fase 6 · Endurecimiento y despliegue: TLS, respaldos, límites de peticiones y guía de operación; excluir el flujo de revisión local del build.
+5. Fase 7 · Cuentas reales, primeros estudios del Centro y capacitación.
 6. Definir la licencia del proyecto y documentar la procedencia de las capas de ejemplo.
 
 Fuera de alcance en esta etapa: análisis especializados sobre los mapas, registro de recorridos y conexión con sistemas de otras instituciones.
