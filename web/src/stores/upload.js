@@ -58,7 +58,6 @@ export const batch = reactive({ items: [], selected: null, dragging: false });
 let seq = 0;
 let jobSeq = 0;
 const byId = id => batch.items.find(x => x.id === id);
-export const itemById = byId;
 
 /* Mensajes de un archivo: lista de segmentos [tipo, texto] con tipo 't' (texto), 'b' (negrita) o 'code' */
 const msg = (icon, ...parts) => ({ icon, parts });

@@ -16,7 +16,6 @@ export const ui = reactive({
   metaId: null
 });
 
-export const isMobile = () => mq.matches;
 
 /* ---------------- avisos (toasts) ---------------- */
 let toastSeq = 0;
@@ -55,7 +54,6 @@ export function closeMenu(returnFocus = true) {
 }
 
 /* ---------------- paneles acoplados ---------------- */
-export function dockOpen(side) { return ui.docks[side]; }
 
 export function setDock(side, open, { persist = true } = {}) {
   if (open && ui.mobile) {

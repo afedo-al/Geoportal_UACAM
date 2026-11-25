@@ -239,7 +239,3 @@ export function fromOffice(props, file = 'libro de Excel') {
   return build(`Excel · ${file}`, p);
 }
 
-/* Resumen legible de lo que se leyó, para el aviso de validación */
-export function summarize(fields, labels) {
-  return Object.keys(fields).filter(k => fields[k]).map(k => labels[k]).filter(Boolean).join(', ').toLowerCase();
-}

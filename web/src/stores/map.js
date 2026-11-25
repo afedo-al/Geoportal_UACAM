@@ -125,7 +125,6 @@ const markerStyle = new Style({ image: new CircleStyle({ radius: 7, fill: new Fi
 const locateStyle = new Style({ stroke: new Stroke({ color: '#214c7e', width: 1.5 }), fill: new Fill({ color: 'rgba(33,76,126,0.12)' }) });
 
 /* ---------------- utilidades ---------------- */
-export const lonLatToCoord = (lon, lat) => fromLonLat([lon, lat]);
 export const bboxToExtent = ([south, north, west, east]) => transformExtent([west, south, east, north], 'EPSG:4326', 'EPSG:3857');
 const boundsToExtent = b => transformExtent([b[0][1], b[0][0], b[1][1], b[1][0]], 'EPSG:4326', 'EPSG:3857');
 

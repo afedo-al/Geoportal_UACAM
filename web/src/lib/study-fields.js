@@ -12,7 +12,6 @@ export const FIELD_LABELS = {
   sLic: 'Licencia de uso', sAccess: 'Clasificación de acceso', sDesc: 'Descripción', sLineage: 'Procedencia y metodología', sKeywords: 'Palabras clave'
 };
 /* Longitud máxima de cada campo */
-export const FIELD_MAX = { sTitle: 200, sTheme: 60, sDate: 10, sResp: 200, sSource: 500, sLic: 60, sAccess: 20, sDesc: 4000, sLineage: 4000, sKeywords: 500 };
 
 /* Origen de un valor de la ficha, a partir del texto que guarda `rec.auto[campo]`.
    Devuelve { key, label }: key sirve para el estilo (archivo, sugerido, defecto, generado, copiado). */
