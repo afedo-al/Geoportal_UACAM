@@ -381,8 +381,9 @@ No hay pruebas automatizadas de las vistas de la interfaz ni de integración con
 │   ├── propuesta_geoportal.md      # Propuesta y objetivos del proyecto
 │   ├── plan-implementacion-y-diseno.md
 │   ├── pruebas-revision-qgis.md    # Pruebas de revisión con QGIS
-│   ├── seguridad.md                # Controles de seguridad de la interfaz
-│   └── presentacion/               # Presentación y guiones que generan sus capturas
+│   ├── auditoria-fase-a.md         # Origen de las líneas moradas y línea base de rendimiento
+│   ├── pendientes-y-plan-arquitectura.pdf  # Qué falta y plan por fases
+│   └── seguridad.md                # Controles de seguridad de la interfaz
 └── web/
     ├── index.html
     ├── vite.config.js              # CSP, compresión, preload y proxy de desarrollo
