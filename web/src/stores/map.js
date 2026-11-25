@@ -43,10 +43,14 @@ if (CFG.mapStyle.key && CFG.mapStyle.id) {
   };
 }
 
+/* Fondo inicial según la arquitectura: el estilo propio de MapTiler (opción A) si está configurado;
+   si no, el fondo discreto de CARTO (opción C). OpenStreetMap queda como opción manual: sus límites morados estorban a las capas. */
+const BASE_INICIAL = BASEMAPS.limpio ? 'limpio' : 'claro';
+
 export const mapState = reactive({
   ready: false,
   active: false,
-  base: 'osm',
+  base: BASE_INICIAL,
   tool: 'pan',
   crs: 'wgs84',
   lastCoord: null,
@@ -417,7 +421,7 @@ export function initMap(target, layers = []) {
   map.getView().on('change:resolution', updateScale);
   map.getTargetElement().addEventListener('pointerleave', () => { lastPixel = null; hovered = null; sources.highlight.clear(); tipOverlay.setPosition(undefined); });
 
-  setBasemap('osm');
+  setBasemap(BASE_INICIAL);
   updateScale();
   mapState.ready = true;
   if (!navigator.onLine) setNet('err', 'Sin conexión a internet');
